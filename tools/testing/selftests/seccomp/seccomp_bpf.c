@@ -1138,14 +1138,14 @@ void tracer_poke(struct __test_metadata *_metadata, pid_t tracee, int status,
 	EXPECT_EQ(0, ret);
 }
 
-FIXTURE_DATA(TRACE_poke) {
+FIXTURE_DATA(TRACE_poke_sys_read) {
 	struct sock_fprog prog;
 	pid_t tracer;
 	long poked;
 	struct tracer_args_poke_t tracer_args;
 };
 
-FIXTURE_SETUP(TRACE_poke)
+FIXTURE_SETUP(TRACE_poke_sys_read)
 {
 	struct sock_filter filter[] = {
 		BPF_STMT(BPF_LD|BPF_W|BPF_ABS,
@@ -1170,14 +1170,14 @@ FIXTURE_SETUP(TRACE_poke)
 					   &self->tracer_args);
 }
 
-FIXTURE_TEARDOWN(TRACE_poke)
+FIXTURE_TEARDOWN(TRACE_poke_sys_read)
 {
 	teardown_trace_fixture(_metadata, self->tracer);
 	if (self->prog.filter)
 		free(self->prog.filter);
 }
 
-TEST_F(TRACE_poke, read_has_side_effects)
+TEST_F(TRACE_poke_sys_read, read_has_side_effects)
 {
 	ssize_t ret;
 
@@ -1193,7 +1193,7 @@ TEST_F(TRACE_poke, read_has_side_effects)
 	EXPECT_EQ(0x1001, self->poked);
 }
 
-TEST_F(TRACE_poke, getpid_runs_normally)
+TEST_F(TRACE_poke_sys_read, getpid_runs_normally)
 {
 	long ret;
 
