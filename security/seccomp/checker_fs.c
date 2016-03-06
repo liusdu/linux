@@ -8,6 +8,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <asm/syscall.h>	/* syscall_get_nr() */
 #include <linux/bitops.h>	/* BIT() */
 #include <linux/compat.h>
 #include <linux/namei.h>	/* user_lpath() */
@@ -16,6 +17,8 @@
 #include <linux/slab.h>
 #include <linux/syscalls.h>	/* __SACT__CONST_CHAR_PTR */
 #include <linux/uaccess.h>	/* copy_from_user() */
+
+#include "checker_fs.h"
 
 #ifdef CONFIG_COMPAT
 /* struct seccomp_object_path */
@@ -328,6 +331,156 @@ u8 seccomp_argrule_path(const u8(*argdesc)[6], const u64(*args)[6],
 
 out:
 	return ret;
+}
+
+/* argeval_find_args_file - return a bitmask of the syscall arguments matching
+ * a struct file and that have changed since the filter checks
+ *
+ * To match a file with a syscall argument, we get its path and deduce the
+ * corresponding user address (uptr). Then, if a match is found, the file's
+ * inode must match the cached inode, otherwise the access is denied if a
+ * second filter check doesn't match exactly the first one. This ensure the
+ * seccomp filter results are still the sames but a tracer process can still
+ * change the tracee syscall arguments.
+ *
+ * If the syscall take multiple paths and the same address is used but only one
+ * argument is checked by the filter, the inode will be checked for all paths
+ * with this same address, detecting a TOCTOU for all of them even if they were
+ * not evaluated by the filter.
+ */
+static u8 argeval_find_args_file(const struct file *file)
+{
+	const struct syscall_argdesc *argdesc;
+	struct dentry *dentry;
+	u8 result = 0;
+	struct seccomp_argeval_cache *arg_cache = current->seccomp.arg_cache;
+
+	if (unlikely(!file)) {
+		WARN_ON(1);
+		return 0;
+	}
+
+	/* Create the argument mask matching the uptr.
+	 * The syscall arguments may have been changed by a tracer.
+	 */
+	argdesc = syscall_nr_to_argdesc(syscall_get_nr(current,
+				task_pt_regs(current)));
+	if (unlikely(!argdesc)) {
+		WARN_ON(1);
+		return 0;
+	}
+	dentry = file->f_path.dentry;
+
+	/* Look in the cache for this path */
+	for (; arg_cache; arg_cache = arg_cache->next) {
+		struct seccomp_argeval_cache_entry *entry = arg_cache->entry;
+
+		switch (arg_cache->type) {
+		case SECCOMP_OBJTYPE_PATH:
+			/* Ignore the mount point to not be fooled by a
+			 * malicious one. Only look for a previously
+			 * seen dentry.
+			 */
+			for (; entry; entry = entry->next) {
+				/* Check for the same filename/argument.
+				 * If the hash and the length are the same
+				 * but the path is different we treat it
+				 * as a race-condition.
+				 */
+				if (entry->fs.hash_len !=
+				    dentry->d_name.hash_len)
+					continue;
+				/* Ignore exact match (i.e. pointed file didn't
+				 * change)
+				 */
+				if (entry->fs.path
+				    && entry->fs.path->dentry == dentry)
+					continue;
+				/* TODO: Add process info/audit */
+				pr_warn("seccomp: TOCTOU race-condition detected!\n");
+				result |= entry->args;
+			}
+			break;
+		default:
+			WARN_ON(1);
+		}
+	}
+	return result;
+}
+
+/**
+ * argeval_history_recheck_file - recheck with the seccomp filters if needed
+ */
+static bool argeval_history_recheck_file(const struct seccomp_argeval_history
+					 *history, seccomp_argrule_t *engine,
+					 const struct syscall_argdesc *argdesc,
+					 const u64(*args)[6], u8 arg_matches)
+{
+	/* Flush the cache to not rely on the first seccomp filter check
+	 * results
+	 */
+	flush_seccomp_cache(current);
+
+	while (history) {
+		/* Only check the changed arguments */
+		if (history->asked & arg_matches) {
+			u8 match = (*engine)(&argdesc->args, args,
+					history->asked, history->checker);
+
+			if (match != history->result)
+				return true;
+		}
+		history = history->next;
+	}
+	return false;
+}
+
+int seccomp_check_file(const struct file *file)
+{
+	int result = -EPERM;
+	const struct syscall_argdesc *argdesc;
+	struct seccomp_argeval_syscall *orig_syscall;
+	struct seccomp_argeval_checked *arg_checked;
+	seccomp_argrule_t *engine;
+	u8 arg_matches;
+
+	/* @file may be null (e.g. security_mmap_file) */
+	if (!file)
+		return 0;
+	/* Early check to exit quickly if no history */
+	arg_checked = current->seccomp.arg_checked;
+	if (!arg_checked)
+		return 0;
+	orig_syscall = current->seccomp.orig_syscall;
+	if (unlikely(!orig_syscall)) {
+		WARN_ON(1);
+		return 0;
+	}
+	/* Check if anything changed from the cache */
+	arg_matches = argeval_find_args_file(file);
+	if (!arg_matches)
+		return 0;
+	/* The syscall may have been changed by the tracer process */
+	argdesc = syscall_nr_to_argdesc(orig_syscall->nr);
+	if (!argdesc) {
+		WARN_ON(1);
+		goto out;
+	}
+	do {
+		engine = get_argrule_checker(arg_checked->check);
+		/* The syscall arguments may have been changed by the tracer
+		 * process
+		 */
+		/* FIXME: Adapt the checker to "struct file *" to avoid races */
+		result =
+		    argeval_history_recheck_file(arg_checked->history, engine,
+						 argdesc, &orig_syscall->args,
+						 arg_matches) ? -EPERM : 0;
+		arg_checked = arg_checked->next;
+	} while (arg_checked);
+
+out:
+	return result;
 }
 
 static long set_argtype_path(const struct seccomp_checker *user_checker,

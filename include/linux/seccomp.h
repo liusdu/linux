@@ -13,7 +13,9 @@
 
 struct seccomp_filter;
 struct seccomp_filter_checker_group;
+struct seccomp_argeval_checked;
 struct seccomp_argeval_cache;
+struct seccomp_argeval_syscall;
 
 /**
  * struct seccomp - the state of a seccomp'ed process
@@ -38,7 +40,9 @@ struct seccomp {
 	struct seccomp_filter_checker_group *checker_group;
 
 	/* syscall-lifetime data */
+	struct seccomp_argeval_checked *arg_checked;
 	struct seccomp_argeval_cache *arg_cache;
+	struct seccomp_argeval_syscall *orig_syscall;
 #endif
 };
 
@@ -153,6 +157,14 @@ struct seccomp_argeval_cache_fs {
 	u64 hash_len;
 };
 
+struct seccomp_argeval_history {
+	/* @checker point to current.seccomp->checker_group->checkers[] */
+	struct seccomp_filter_checker *checker;
+	u8 asked;
+	u8 result;
+	struct seccomp_argeval_history *next;
+};
+
 /**
  * struct seccomp_argeval_cache_entry
  *
@@ -178,6 +190,13 @@ struct seccomp_argeval_cache {
 	struct seccomp_argeval_cache *next;
 };
 
+/* Use get_argrule_checker() */
+struct seccomp_argeval_checked {
+	u32 check;
+	struct seccomp_argeval_history *history;
+	struct seccomp_argeval_checked *next;
+};
+
 void put_seccomp_filter_checker(struct seccomp_filter_checker *);
 
 u8 seccomp_argrule_path(const u8(*)[6], const u64(*)[6], u8,
@@ -185,6 +204,14 @@ u8 seccomp_argrule_path(const u8(*)[6], const u64(*)[6], u8,
 
 long seccomp_set_argcheck_fs(const struct seccomp_checker *,
 			     struct seccomp_filter_checker *);
+
+/* Need to save syscall properties to be able to properly recheck the filters
+ * even if the syscall and its arguments has been tampered by a tracer process.
+ */
+struct seccomp_argeval_syscall {
+	int nr;
+	u64 args[6];
+};
 
 #endif /* CONFIG_SECURITY_SECCOMP */
 

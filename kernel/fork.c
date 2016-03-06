@@ -361,7 +361,9 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
 	tsk->seccomp.filter = NULL;
 #ifdef CONFIG_SECURITY_SECCOMP
 	tsk->seccomp.checker_group = NULL;
+	tsk->seccomp.arg_checked = NULL;
 	tsk->seccomp.arg_cache = NULL;
+	tsk->seccomp.orig_syscall = NULL;
 #endif /* CONFIG_SECURITY_SECCOMP */
 #endif /* CONFIG_SECCOMP */
 

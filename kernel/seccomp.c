@@ -286,6 +286,40 @@ struct syscall_argdesc *syscall_nr_to_argdesc(int nr)
 	return &(*seccomp_sa)[nr];
 }
 
+/* Return a new empty history entry for the check type or NULL if ENOMEM */
+static struct seccomp_argeval_history *new_argeval_history(u32 check)
+{
+	struct seccomp_argeval_checked **arg_checked;
+	struct seccomp_argeval_history **history;
+	bool found = false;
+
+	/* Find the check type */
+	arg_checked = &current->seccomp.arg_checked;
+	while (*arg_checked) {
+		if ((*arg_checked)->check == check) {
+			found = true;
+			break;
+		}
+		arg_checked = &(*arg_checked)->next;
+	}
+	if (!found) {
+		*arg_checked = kmalloc(sizeof(**arg_checked), GFP_KERNEL);
+		if (!*arg_checked)
+			return NULL;
+		(*arg_checked)->check = check;
+		(*arg_checked)->history = NULL;
+		(*arg_checked)->next = NULL;
+	}
+
+	/* Append to history */
+	history = &(*arg_checked)->history;
+	while (*history)
+		history = &(*history)->next;
+	*history = kzalloc(sizeof(**history), GFP_KERNEL);
+
+	return *history;
+}
+
 /* Return the argument group address that match the group ID, or NULL
  * otherwise.
  */
@@ -299,6 +333,7 @@ static struct seccomp_filter_checker_group *seccomp_update_argrule_data(
 	const struct syscall_argdesc *argdesc;
 	struct seccomp_filter_checker *checker;
 	seccomp_argrule_t *engine;
+	struct seccomp_argeval_history *history;
 
 	const u8 group_id = ret_data & SECCOMP_RET_CHECKER_GROUP;
 	const u8 to_check = (ret_data & SECCOMP_RET_ARG_MATCHES) >> 8;
@@ -327,6 +362,17 @@ static struct seccomp_filter_checker_group *seccomp_update_argrule_data(
 		if (engine) {
 			match = (*engine)(&argdesc->args, &sd->args, to_check, checker);
 
+			/* Append the results to be able to replay the checks */
+			history = new_argeval_history(checker->check);
+			if (!history) {
+				/* XXX: return -ENOMEM somehow? */
+				break;
+			}
+			history->checker = checker;
+			history->asked = to_check;
+			history->result = match;
+
+			/* Store the matches after the history record */
 			for (j = 0; j < 6; j++) {
 				sd->arg_matches[j] |=
 				    ((BIT_ULL(j) & match) >> j) << i;
@@ -375,6 +421,39 @@ void flush_seccomp_cache(struct task_struct *tsk)
 	free_seccomp_argeval_cache(tsk->seccomp.arg_cache);
 	tsk->seccomp.arg_cache = NULL;
 }
+
+static void free_seccomp_argeval_history(struct seccomp_argeval_history *history)
+{
+	struct seccomp_argeval_history *walker = history;
+
+	while (walker) {
+		struct seccomp_argeval_history *freeme = walker;
+
+		/* Must not free history->checker owned by
+		 * current.seccomp->checker_group->checkers[]
+		 */
+		walker = walker->next;
+		kfree(freeme);
+	}
+}
+
+static void free_seccomp_argeval_checked(struct seccomp_argeval_checked *checked)
+{
+	struct seccomp_argeval_checked *walker = checked;
+
+	while (walker) {
+		struct seccomp_argeval_checked *freeme = walker;
+
+		free_seccomp_argeval_history(walker->history);
+		walker = walker->next;
+		kfree(freeme);
+	}
+}
+
+static inline void free_seccomp_argeval_syscall(struct seccomp_argeval_syscall *orig_syscall)
+{
+	kfree(orig_syscall);
+}
 #endif /* CONFIG_SECURITY_SECCOMP */
 
 static void put_seccomp_filter(struct task_struct *tsk);
@@ -405,7 +484,27 @@ static u32 seccomp_run_filters(struct seccomp_data *sd)
 		sd = &sd_local;
 	}
 #ifdef CONFIG_SECURITY_SECCOMP
-	/* Cleanup old (syscall-lifetime) cache */
+	/* Backup the current syscall and its arguments (used by the filters),
+	 * to not be misled in the LSM checks by a potential ptrace setregs
+	 * command.
+	 */
+	if (!current->seccomp.orig_syscall) {
+		current->seccomp.orig_syscall =
+		    kmalloc(sizeof(*current->seccomp.orig_syscall), GFP_KERNEL);
+		if (!current->seccomp.orig_syscall)
+			return SECCOMP_RET_KILL;
+	}
+	current->seccomp.orig_syscall->nr = sd->nr;
+	current->seccomp.orig_syscall->args[0] = sd->args[0];
+	current->seccomp.orig_syscall->args[1] = sd->args[1];
+	current->seccomp.orig_syscall->args[2] = sd->args[2];
+	current->seccomp.orig_syscall->args[3] = sd->args[3];
+	current->seccomp.orig_syscall->args[4] = sd->args[4];
+	current->seccomp.orig_syscall->args[5] = sd->args[5];
+
+	/* Cleanup old (syscall-lifetime) history and cache */
+	free_seccomp_argeval_checked(current->seccomp.arg_checked);
+	current->seccomp.arg_checked = NULL;
 	flush_seccomp_cache(current);
 #endif
 
@@ -786,7 +885,9 @@ void put_seccomp(struct task_struct *tsk)
 	put_seccomp_filter(tsk);
 #ifdef CONFIG_SECURITY_SECCOMP
 	/* Free in that order because of referenced checkers */
+	free_seccomp_argeval_checked(tsk->seccomp.arg_checked);
 	free_seccomp_argeval_cache(tsk->seccomp.arg_cache);
+	free_seccomp_argeval_syscall(tsk->seccomp.orig_syscall);
 	put_seccomp_checker_group(tsk->seccomp.checker_group);
 #endif
 }
