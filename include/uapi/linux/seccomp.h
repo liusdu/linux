@@ -32,9 +32,15 @@
 #define SECCOMP_RET_TRACE	0x7ff00000U /* pass to a tracer or disallow */
 #define SECCOMP_RET_ALLOW	0x7fff0000U /* allow */
 
+/* Intermediate return values */
+#define SECCOMP_RET_ARGEVAL	0x80ff0000U /* trigger argument evaluation */
+
 /* Masks for the return value sections. */
+#define SECCOMP_RET_INTER	0xffff0000U
 #define SECCOMP_RET_ACTION	0x7fff0000U
 #define SECCOMP_RET_DATA	0x0000ffffU
+#define SECCOMP_RET_CHECKER_GROUP	0x000000ffU
+#define SECCOMP_RET_ARG_MATCHES	0x00003f00U
 
 /* Object checks */
 #define SECCOMP_CHECK_FS_LITERAL	1
@@ -57,19 +63,37 @@
 
 /**
  * struct seccomp_data - the format the BPF program executes over.
+ *
+ * Userland can find the seccomp_data version with the struct length (i.e.
+ * BPF_LEN) and offsetof(struct seccomp_data, <field>) + sizeof(<field-type>).
+
  * @nr: the system call number
  * @arch: indicates system call convention as an AUDIT_ARCH_* value
  *        as defined in <linux/audit.h>.
  * @instruction_pointer: at the time of the system call.
  * @args: up to 6 system call arguments always stored as 64-bit values
  *        regardless of the architecture.
+ * @is_valid_syscall: set to 1 if the syscall exists and was found or 0
+ *                    otherwise (needed for argument type resolution).
+ * @checker_group: checker group selected by the previously executed filter
+ *                 (only the 8 least significant bits are used).
+ * @arg_matches: 6 bitmasks indicating which argument checkers matched the
+ *               system call arguments.
  */
 struct seccomp_data {
 	int nr;
 	__u32 arch;
 	__u64 instruction_pointer;
 	__u64 args[6];
+	__u32 is_valid_syscall; /* SECCOMP_DATA_VALIDSYS_PRESENT */
+	__u32 checker_group; /* SECCOMP_DATA_ARGEVAL_PRESENT */
+	__u64 arg_matches[6]; /* SECCOMP_DATA_ARGEVAL_PRESENT */
 };
+
+/* Up to seccomp_data.is_valid_syscall */
+#define SECCOMP_DATA_VALIDSYS_PRESENT	1
+/* Up to seccomp_data.arg_matches[6] */
+#define SECCOMP_DATA_ARGEVAL_PRESENT	1
 
 /* TODO: Add a "at" field (default to AT_FDCWD) */
 struct seccomp_object_path {

@@ -23,6 +23,13 @@
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 
+#include <linux/bitops.h>	/* BIT_ULL() */
+#include <linux/fs.h>
+#include <linux/fs_struct.h>
+#include <linux/mount.h>
+#include <linux/namei.h>	/* user_lpath*() path_put() */
+#include <linux/path.h>
+
 #ifdef CONFIG_HAVE_ARCH_SECCOMP_FILTER
 #include <asm/syscall.h>
 #endif
@@ -34,6 +41,33 @@
 #include <linux/security.h>
 #include <linux/tracehook.h>
 #include <linux/uaccess.h>
+#include <linux/ftrace.h>	/* for arch_syscall_match_sym_name() overload */
+
+#ifdef CONFIG_SECURITY_SECCOMP
+#include <linux/kernel.h>	/* FIELD_SIZEOF() */
+
+#ifdef CONFIG_COMPAT
+/* struct seccomp_checker_group */
+struct compat_seccomp_checker_group {
+	__u8 version;
+	__u8 id;
+	unsigned int len;
+	compat_uptr_t checkers;	/* const struct seccomp_checker (*)[] */
+};
+
+/* struct seccomp_checker */
+struct compat_seccomp_checker {
+	__u32 check;
+	__u32 type;
+	unsigned int len;
+	compat_uptr_t checker;	/* const struct seccomp_object_path * */
+};
+
+extern struct syscall_argdesc (*compat_seccomp_syscalls_argdesc)[];
+#endif /* CONFIG_COMPAT */
+
+extern struct syscall_argdesc (*seccomp_syscalls_argdesc)[];
+#endif /* CONFIG_SECURITY_SECCOMP */
 
 /**
  * struct seccomp_filter - container for seccomp BPF programs
@@ -45,6 +79,8 @@
  * @prev: points to a previously installed, or inherited, filter
  * @len: the number of instructions in the program
  * @insnsi: the BPF program instructions to evaluate
+ *
+ * @checker_group: the list of argument checkers usable by a filter
  *
  * seccomp_filter objects are organized in a tree linked via the @prev
  * pointer.  For any task, it appears to be a singly-linked list starting
@@ -60,6 +96,9 @@ struct seccomp_filter {
 	atomic_t usage;
 	struct seccomp_filter *prev;
 	struct bpf_prog *prog;
+#ifdef CONFIG_SECURITY_SECCOMP
+	struct seccomp_filter_checker_group *checker_group;
+#endif
 };
 
 /* Argument group attached to seccomp filters
@@ -93,6 +132,18 @@ struct seccomp_filter_checker_group {
 /* Limit any path through the tree to 256KB worth of instructions. */
 #define MAX_INSNS_PER_PATH ((1 << 18) / sizeof(struct sock_filter))
 
+static void clean_seccomp_data(struct seccomp_data *sd)
+{
+	sd->is_valid_syscall = 0;
+	sd->checker_group = 0;
+	sd->arg_matches[0] = 0ULL;
+	sd->arg_matches[1] = 0ULL;
+	sd->arg_matches[2] = 0ULL;
+	sd->arg_matches[3] = 0ULL;
+	sd->arg_matches[4] = 0ULL;
+	sd->arg_matches[5] = 0ULL;
+}
+
 /*
  * Endianness is explicitly ignored and left for BPF program authors to manage
  * as per the specific architecture.
@@ -113,6 +164,7 @@ static void populate_seccomp_data(struct seccomp_data *sd)
 	sd->args[4] = args[4];
 	sd->args[5] = args[5];
 	sd->instruction_pointer = KSTK_EIP(task);
+	clean_seccomp_data(sd);
 }
 
 /**
@@ -197,6 +249,136 @@ static int seccomp_check_filter(struct sock_filter *filter, unsigned int flen)
 	return 0;
 }
 
+#ifdef CONFIG_SECURITY_SECCOMP
+seccomp_argrule_t *get_argrule_checker(u32 check)
+{
+	switch (check) {
+	case SECCOMP_CHECK_FS_LITERAL:
+	case SECCOMP_CHECK_FS_BENEATH:
+		return seccomp_argrule_path;
+	}
+	return NULL;
+}
+
+struct syscall_argdesc *syscall_nr_to_argdesc(int nr)
+{
+	unsigned int nr_syscalls;
+	struct syscall_argdesc (*seccomp_sa)[];
+
+#ifdef CONFIG_COMPAT
+	if (is_compat_task()) {
+		nr_syscalls = IA32_NR_syscalls;
+		seccomp_sa = compat_seccomp_syscalls_argdesc;
+	} else /* falls below */
+#endif	/* CONFIG_COMPAT */
+	{
+		nr_syscalls = NR_syscalls;
+		seccomp_sa = seccomp_syscalls_argdesc;
+	}
+
+	if (nr >= nr_syscalls || nr < 0)
+		return NULL;
+	if (unlikely(!seccomp_sa)) {
+		WARN_ON(1);
+		return NULL;
+	}
+
+	return &(*seccomp_sa)[nr];
+}
+
+/* Return the argument group address that match the group ID, or NULL
+ * otherwise.
+ */
+static struct seccomp_filter_checker_group *seccomp_update_argrule_data(
+		struct seccomp_filter *filter,
+		struct seccomp_data *sd, u16 ret_data)
+{
+	int i, j;
+	u8 match;
+	struct seccomp_filter_checker_group *walker, *checker_group = NULL;
+	const struct syscall_argdesc *argdesc;
+	struct seccomp_filter_checker *checker;
+	seccomp_argrule_t *engine;
+
+	const u8 group_id = ret_data & SECCOMP_RET_CHECKER_GROUP;
+	const u8 to_check = (ret_data & SECCOMP_RET_ARG_MATCHES) >> 8;
+
+	clean_seccomp_data(sd);
+
+	/* Find the matching group in those accessible to this filter */
+	for (walker = filter->checker_group; walker; walker = walker->prev) {
+		if (walker->id == group_id) {
+			checker_group = walker;
+			break;
+		}
+	}
+	if (!checker_group)
+		return NULL;
+	sd->checker_group = checker_group->id;
+
+	argdesc = syscall_nr_to_argdesc(sd->nr);
+	if (!argdesc)
+		return checker_group;
+	sd->is_valid_syscall = 1;
+
+	for (i = 0; i < checker_group->checkers_len; i++) {
+		checker = &checker_group->checkers[i];
+		engine = get_argrule_checker(checker->check);
+		if (engine) {
+			match = (*engine)(&argdesc->args, &sd->args, to_check, checker);
+
+			for (j = 0; j < 6; j++) {
+				sd->arg_matches[j] |=
+				    ((BIT_ULL(j) & match) >> j) << i;
+			}
+		}
+	}
+	return checker_group;
+}
+
+static void free_seccomp_argeval_cache_entry(u32 type,
+					     struct seccomp_argeval_cache_entry
+					     *entry)
+{
+	while (entry) {
+		struct seccomp_argeval_cache_entry *freeme = entry;
+
+		switch (type) {
+		case SECCOMP_OBJTYPE_PATH:
+			if (entry->fs.path) {
+				/* Pointer checks done in path_put() */
+				path_put(entry->fs.path);
+				kfree(entry->fs.path);
+			}
+			break;
+		default:
+			WARN_ON(1);
+		}
+		entry = entry->next;
+		kfree(freeme);
+	}
+}
+
+static void free_seccomp_argeval_cache(struct seccomp_argeval_cache *arg_cache)
+{
+	while (arg_cache) {
+		struct seccomp_argeval_cache *freeme = arg_cache;
+
+		free_seccomp_argeval_cache_entry(arg_cache->type, arg_cache->entry);
+		arg_cache = arg_cache->next;
+		kfree(freeme);
+	}
+}
+
+void flush_seccomp_cache(struct task_struct *tsk)
+{
+	free_seccomp_argeval_cache(tsk->seccomp.arg_cache);
+	tsk->seccomp.arg_cache = NULL;
+}
+#endif /* CONFIG_SECURITY_SECCOMP */
+
+static void put_seccomp_filter(struct task_struct *tsk);
+
 /**
  * seccomp_run_filters - evaluates all seccomp filters against @syscall
  * @syscall: number of the current system call
@@ -205,6 +387,9 @@ static int seccomp_check_filter(struct sock_filter *filter, unsigned int flen)
  */
 static u32 seccomp_run_filters(struct seccomp_data *sd)
 {
+#ifdef CONFIG_SECURITY_SECCOMP
+	struct seccomp_filter_checker_group *walker, *arg_match = NULL;
+#endif
 	struct seccomp_data sd_local;
 	u32 ret = SECCOMP_RET_ALLOW;
 	/* Make sure cross-thread synced filter points somewhere sane. */
@@ -219,17 +404,54 @@ static u32 seccomp_run_filters(struct seccomp_data *sd)
 		populate_seccomp_data(&sd_local);
 		sd = &sd_local;
 	}
+#ifdef CONFIG_SECURITY_SECCOMP
+	/* Cleanup old (syscall-lifetime) cache */
+	flush_seccomp_cache(current);
+#endif
 
 	/*
 	 * All filters in the list are evaluated and the lowest BPF return
 	 * value always takes priority (ignoring the DATA).
 	 */
 	for (; f; f = f->prev) {
-		u32 cur_ret = BPF_PROG_RUN(f->prog, (void *)sd);
+		u32 cur_ret;
 
-		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
+#ifdef CONFIG_SECURITY_SECCOMP
+		if (arg_match) {
+			bool found = false;
+
+			/* Find if the argument group is accessible from this filter */
+			for (walker = f->checker_group; walker; walker = walker->prev) {
+				if (walker == arg_match) {
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				clean_seccomp_data(sd);
+		}
+#endif /* CONFIG_SECURITY_SECCOMP */
+		cur_ret = BPF_PROG_RUN(f->prog, (void *)sd);
+
+#ifdef CONFIG_SECURITY_SECCOMP
+		/* Intermediate return values */
+		if ((cur_ret & SECCOMP_RET_INTER) == SECCOMP_RET_ARGEVAL) {
+			/* XXX: sd modification /!\ */
+			arg_match = seccomp_update_argrule_data(f, sd,
+					(cur_ret & SECCOMP_RET_DATA));
+		} else if (arg_match) {
+			clean_seccomp_data(sd);
+			arg_match = NULL;
+		}
+#endif /* CONFIG_SECURITY_SECCOMP */
+
+		if ((cur_ret & SECCOMP_RET_INTER) < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
 	}
+#ifdef CONFIG_SECURITY_SECCOMP
+	if (arg_match && sd != &sd_local)
+		clean_seccomp_data(sd);
+#endif /* CONFIG_SECURITY_SECCOMP */
 	return ret;
 }
 #endif /* CONFIG_SECCOMP_FILTER */
@@ -407,6 +629,13 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		return ERR_PTR(ret);
 	}
 
+#ifdef CONFIG_SECURITY_SECCOMP
+	sfilter->checker_group =
+		lockless_dereference(current->seccomp.checker_group);
+	if (sfilter->checker_group)
+		atomic_inc(&sfilter->checker_group->usage);
+#endif /* CONFIG_SECURITY_SECCOMP */
+
 	atomic_set(&sfilter->usage, 1);
 
 	return sfilter;
@@ -532,13 +761,16 @@ static void put_seccomp_checker_group(struct seccomp_filter_checker_group *check
 static inline void seccomp_filter_free(struct seccomp_filter *filter)
 {
 	if (filter) {
+#ifdef CONFIG_SECURITY_SECCOMP
+		put_seccomp_checker_group(filter->checker_group);
+#endif /* CONFIG_SECURITY_SECCOMP */
 		bpf_prog_destroy(filter->prog);
 		kfree(filter);
 	}
 }
 
 /* put_seccomp_filter - decrements the ref count of tsk->seccomp.filter */
-void put_seccomp_filter(struct task_struct *tsk)
+static void put_seccomp_filter(struct task_struct *tsk)
 {
 	struct seccomp_filter *orig = tsk->seccomp.filter;
 	/* Clean up single-reference branches iteratively. */
@@ -547,7 +779,14 @@ void put_seccomp_filter(struct task_struct *tsk)
 		orig = orig->prev;
 		seccomp_filter_free(freeme);
 	}
+}
+
+void put_seccomp(struct task_struct *tsk)
+{
+	put_seccomp_filter(tsk);
 #ifdef CONFIG_SECURITY_SECCOMP
+	/* Free in that order because of referenced checkers */
+	free_seccomp_argeval_cache(tsk->seccomp.arg_cache);
 	put_seccomp_checker_group(tsk->seccomp.checker_group);
 #endif
 }
@@ -673,6 +912,9 @@ static u32 __seccomp_phase1_filter(int this_syscall, struct seccomp_data *sd)
 	case SECCOMP_RET_TRACE:
 		return filter_ret;  /* Save the rest for phase 2. */
 
+	case SECCOMP_RET_ARGEVAL:
+		/* Handled in seccomp_run_filters() */
+		BUG();
 	case SECCOMP_RET_ALLOW:
 		return SECCOMP_PHASE1_OK;
 
@@ -881,7 +1123,8 @@ static inline long seccomp_set_mode_filter(unsigned int flags,
 #ifdef CONFIG_SECURITY_SECCOMP
 
 /* Limit checkers number to 64 to be able to show matches with a bitmask. */
-#define SECCOMP_CHECKERS_MAX 64
+#define SECCOMP_CHECKERS_MAX \
+	(FIELD_SIZEOF(struct seccomp_data, arg_matches[0]) * BITS_PER_BYTE)
 
 /* Limit arg group list and their checkers to 256KB. */
 #define SECCOMP_GROUP_CHECKERS_MAX_SIZE (1 << 18)
