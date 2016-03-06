@@ -1113,14 +1113,16 @@ void teardown_trace_fixture(struct __test_metadata *_metadata,
 
 /* "poke" tracer arguments and function. */
 struct tracer_args_poke_t {
-	unsigned long poke_addr;
+	unsigned long *poke_addr;
+	unsigned long *poke_data;
+	unsigned long poke_len;
 };
 
 void tracer_poke(struct __test_metadata *_metadata, pid_t tracee, int status,
 		 void *args)
 {
 	int ret;
-	unsigned long msg;
+	unsigned long msg, i;
 	struct tracer_args_poke_t *info = (struct tracer_args_poke_t *)args;
 
 	ret = ptrace(PTRACE_GETEVENTMSG, tracee, NULL, &msg);
@@ -1134,8 +1136,14 @@ void tracer_poke(struct __test_metadata *_metadata, pid_t tracee, int status,
 	 * Registers are not touched to try to keep this relatively arch
 	 * agnostic.
 	 */
-	ret = ptrace(PTRACE_POKEDATA, tracee, info->poke_addr, 0x1001);
-	EXPECT_EQ(0, ret);
+	for (i = 0; i < info->poke_len; i++) {
+		unsigned long addr = (unsigned long)info->poke_addr +
+			i * sizeof(long);
+
+		ret = ptrace(PTRACE_POKEDATA, tracee,
+				addr, *(info->poke_data + i));
+		EXPECT_EQ(0, ret);
+	}
 }
 
 FIXTURE_DATA(TRACE_poke_sys_read) {
@@ -1143,6 +1151,7 @@ FIXTURE_DATA(TRACE_poke_sys_read) {
 	pid_t tracer;
 	long poked;
 	struct tracer_args_poke_t tracer_args;
+	unsigned long flag;
 };
 
 FIXTURE_SETUP(TRACE_poke_sys_read)
@@ -1163,7 +1172,10 @@ FIXTURE_SETUP(TRACE_poke_sys_read)
 	self->prog.len = (unsigned short)ARRAY_SIZE(filter);
 
 	/* Set up tracer args. */
-	self->tracer_args.poke_addr = (unsigned long)&self->poked;
+	self->tracer_args.poke_addr = &self->poked;
+	self->flag = 0x2001;
+	self->tracer_args.poke_data = &self->flag;
+	self->tracer_args.poke_len = 1;
 
 	/* Launch tracer. */
 	self->tracer = setup_trace_fixture(_metadata, tracer_poke,
@@ -1190,7 +1202,7 @@ TEST_F(TRACE_poke_sys_read, read_has_side_effects)
 	EXPECT_EQ(0, self->poked);
 	ret = read(-1, NULL, 0);
 	EXPECT_EQ(-1, ret);
-	EXPECT_EQ(0x1001, self->poked);
+	EXPECT_EQ(0x2001, self->poked);
 }
 
 TEST_F(TRACE_poke_sys_read, getpid_runs_normally)
