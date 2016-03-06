@@ -84,13 +84,21 @@ struct seccomp_data {
 	__u32 arch;
 	__u64 instruction_pointer;
 	__u64 args[6];
+	__u32 is_valid_syscall; /* SECCOMP_DATA_VALIDSYS_PRESENT */
+	__u32 checker_group; /* SECCOMP_DATA_ARGEVAL_PRESENT */
+	__u64 arg_matches[6]; /* SECCOMP_DATA_ARGEVAL_PRESENT */
 };
+
+#define SECCOMP_DATA_ARGEVAL_PRESENT
 #endif
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define syscall_arg(_n) (offsetof(struct seccomp_data, args[_n]))
+#define match_arg(_n) (offsetof(struct seccomp_data, arg_matches[_n]))
 #elif __BYTE_ORDER == __BIG_ENDIAN
 #define syscall_arg(_n) (offsetof(struct seccomp_data, args[_n]) + sizeof(__u32))
+#define match_arg(_n) \
+	(offsetof(struct seccomp_data, arg_matches[_n]) + sizeof(__u32))
 #else
 #error "wut? Unknown __BYTE_ORDER?!"
 #endif
@@ -502,7 +510,11 @@ TEST_SIGNAL(KILL_one_arg_six, SIGSYS)
 TEST(arg_out_of_range)
 {
 	struct sock_filter filter[] = {
+#ifdef SECCOMP_DATA_ARGEVAL_PRESENT
+		BPF_STMT(BPF_LD|BPF_W|BPF_ABS, match_arg(6)),
+#else
 		BPF_STMT(BPF_LD|BPF_W|BPF_ABS, syscall_arg(6)),
+#endif
 		BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ALLOW),
 	};
 	struct sock_fprog prog = {
