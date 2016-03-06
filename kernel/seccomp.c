@@ -881,13 +881,16 @@ int __secure_computing(void)
 static u32 __seccomp_phase1_filter(int this_syscall, struct seccomp_data *sd)
 {
 	u32 filter_ret, action;
-	int data;
+	int data, ret;
 
 	/*
 	 * Make sure that any changes to mode from another thread have
 	 * been seen after TIF_SECCOMP was seen.
 	 */
 	rmb();
+
+	/* Enable caching */
+	audit_seccomp_entry();
 
 	filter_ret = seccomp_run_filters(sd);
 	data = filter_ret & SECCOMP_RET_DATA;
@@ -910,13 +913,15 @@ static u32 __seccomp_phase1_filter(int this_syscall, struct seccomp_data *sd)
 		goto skip;
 
 	case SECCOMP_RET_TRACE:
-		return filter_ret;  /* Save the rest for phase 2. */
+		ret = filter_ret;  /* Save the rest for phase 2. */
+		goto audit_exit;
 
 	case SECCOMP_RET_ARGEVAL:
 		/* Handled in seccomp_run_filters() */
 		BUG();
 	case SECCOMP_RET_ALLOW:
-		return SECCOMP_PHASE1_OK;
+		ret = SECCOMP_PHASE1_OK;
+		goto audit_exit;
 
 	case SECCOMP_RET_KILL:
 	default:
@@ -926,7 +931,12 @@ static u32 __seccomp_phase1_filter(int this_syscall, struct seccomp_data *sd)
 
 	unreachable();
 
+audit_exit:
+	audit_seccomp_exit(0);
+	return ret;
+
 skip:
+	audit_seccomp_exit(1);
 	audit_seccomp(this_syscall, 0, action);
 	return SECCOMP_PHASE1_SKIP;
 }
@@ -1139,6 +1149,11 @@ static long seccomp_add_checker_group(unsigned int flags, const char __user *gro
 	unsigned long group_size, kcheckers_size, full_group_size;
 	long result;
 
+	/* FIXME: Deny unsecure path evaluation (i.e. without audit_names) for
+	 * the entire task life.
+	 */
+	if (!current->audit_context)
+		return -EPERM;
 	if (!task_no_new_privs(current) &&
 	    security_capable_noaudit(current_cred(),
 				     current_user_ns(), CAP_SYS_ADMIN) != 0)
