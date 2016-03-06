@@ -2208,6 +2208,37 @@ TEST(syscall_restart)
 		_metadata->passed = 0;
 }
 
+#ifdef SECCOMP_DATA_ARGEVAL_PRESENT
+TEST(field_is_valid_syscall)
+{
+	struct sock_filter filter[] = {
+		BPF_STMT(BPF_LD|BPF_W|BPF_ABS,
+				offsetof(struct seccomp_data, nr)),
+		BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, __NR_getpid, 1, 0),
+		BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ALLOW),
+		BPF_STMT(BPF_LD|BPF_W|BPF_ABS,
+				offsetof(struct seccomp_data, is_valid_syscall)),
+		BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, 1, 1, 0),
+		BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ERRNO | EINVAL),
+		BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ALLOW),
+	};
+	struct sock_fprog prog = {
+		.len = (unsigned short)ARRAY_SIZE(filter),
+		.filter = filter,
+	};
+
+	ASSERT_EQ(0, prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		TH_LOG("Kernel does not support PR_SET_NO_NEW_PRIVS!");
+	}
+	EXPECT_EQ(0, seccomp(SECCOMP_SET_MODE_FILTER, 0, &prog)) {
+		TH_LOG("Failed to install filter!");
+	}
+
+	EXPECT_EQ(-1, syscall(__NR_getpid));
+	EXPECT_EQ(EINVAL, errno);
+}
+#endif /* SECCOMP_DATA_ARGEVAL_PRESENT */
+
 /*
  * TODO:
  * - add microbenchmarks
