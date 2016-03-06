@@ -9,8 +9,10 @@
 
 #include <linux/thread_info.h>
 #include <asm/seccomp.h>
+#include <linux/path.h>
 
 struct seccomp_filter;
+struct seccomp_filter_checker_group;
 /**
  * struct seccomp - the state of a seccomp'ed process
  *
@@ -19,12 +21,20 @@ struct seccomp_filter;
  * @filter: must always point to a valid seccomp-filter or NULL as it is
  *          accessed without locking during system call entry.
  *
+ * @checker_group: an append-only list of argument checkers usable by filters
+ *                 created after the last update.
+ *
  *          @filter must only be accessed from the context of current as there
  *          is no read locking.
  */
 struct seccomp {
 	int mode;
 	struct seccomp_filter *filter;
+
+#ifdef CONFIG_SECURITY_SECCOMP
+	/* @checker_group is only used for filter creation and unique per thread */
+	struct seccomp_filter_checker_group *checker_group;
+#endif
 };
 
 #ifdef CONFIG_HAVE_ARCH_SECCOMP_FILTER
@@ -85,6 +95,28 @@ static inline int seccomp_mode(struct seccomp *s)
 #ifdef CONFIG_SECCOMP_FILTER
 extern void put_seccomp_filter(struct task_struct *tsk);
 extern void get_seccomp_filter(struct task_struct *tsk);
+
+#ifdef CONFIG_SECURITY_SECCOMP
+struct seccomp_filter_object_path {
+	u32 flags;
+	struct path path;
+};
+
+struct seccomp_filter_checker {
+	/* e.g. SECCOMP_ARGCHECK_FS_LITERAL */
+	u32 check;
+	/* e.g. SECCOMP_ARGTYPE_PATH */
+	u32 type;
+	union {
+		struct seccomp_filter_object_path object_path;
+	};
+};
+
+
+long seccomp_set_argcheck_fs(const struct seccomp_checker *,
+			     struct seccomp_filter_checker *);
+#endif /* CONFIG_SECURITY_SECCOMP */
+
 #else  /* CONFIG_SECCOMP_FILTER */
 static inline void put_seccomp_filter(struct task_struct *tsk)
 {

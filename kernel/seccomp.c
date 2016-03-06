@@ -6,6 +6,8 @@
  * Copyright (C) 2012 Google, Inc.
  * Will Drewry <wad@chromium.org>
  *
+ * Copyright (C) 2016  Mickaël Salaün <mic@digikod.net>
+ *
  * This defines a simple but solid secure-computing facility.
  *
  * Mode 1 uses a fixed list of allowed system calls.
@@ -59,6 +61,34 @@ struct seccomp_filter {
 	struct seccomp_filter *prev;
 	struct bpf_prog *prog;
 };
+
+/* Argument group attached to seccomp filters
+ *
+ * @usage keep track of the references
+ * @prev link to the previous checker_group
+ * @id is given by userland to easely check a filter statically and not
+ *     leak data from the kernel
+ * @checkers_len is the number of @checkers elements
+ * @checkers contains the checkers
+ *
+ * seccomp_filter_checker_group checkers are organized in a tree linked via the
+ * @prev pointer. For any task, it appears to be a singly-linked list starting
+ * with current->seccomp.filter->checker_group, the most recently added argument
+ * group. All filters created by a process share the argument groups created by
+ * this process until the filter creation but they can not be changed. However,
+ * multiple argument groups may share a @prev node, which results in a
+ * unidirectional tree existing in memory. They are not inherited through
+ * fork().
+ */
+#ifdef CONFIG_SECURITY_SECCOMP
+struct seccomp_filter_checker_group {
+	atomic_t usage;
+	struct seccomp_filter_checker_group *prev;
+	u8 id;
+	unsigned int checkers_len;
+	struct seccomp_filter_checker checkers[];
+};
+#endif /* CONFIG_SECURITY_SECCOMP */
 
 /* Limit any path through the tree to 256KB worth of instructions. */
 #define MAX_INSNS_PER_PATH ((1 << 18) / sizeof(struct sock_filter))
@@ -467,6 +497,38 @@ void get_seccomp_filter(struct task_struct *tsk)
 	atomic_inc(&orig->usage);
 }
 
+#ifdef CONFIG_SECURITY_SECCOMP
+/* Do not free @checker */
+static void put_seccomp_obj(struct seccomp_filter_checker *checker)
+{
+	switch (checker->type) {
+	case SECCOMP_OBJTYPE_PATH:
+		/* Pointer checks done in path_put() */
+		path_put(&checker->object_path.path);
+		break;
+	default:
+		WARN_ON(1);
+	}
+}
+
+/* Free @checker_group */
+static void put_seccomp_checker_group(struct seccomp_filter_checker_group *checker_group)
+{
+	int i;
+	struct seccomp_filter_checker_group *orig = checker_group;
+
+	/* Clean up single-reference branches iteratively. */
+	while (orig && atomic_dec_and_test(&orig->usage)) {
+		struct seccomp_filter_checker_group *freeme = orig;
+
+		for (i = 0; i < freeme->checkers_len; i++)
+			put_seccomp_obj(&freeme->checkers[i]);
+		orig = orig->prev;
+		kfree(freeme);
+	}
+}
+#endif /* CONFIG_SECURITY_SECCOMP */
+
 static inline void seccomp_filter_free(struct seccomp_filter *filter)
 {
 	if (filter) {
@@ -485,6 +547,9 @@ void put_seccomp_filter(struct task_struct *tsk)
 		orig = orig->prev;
 		seccomp_filter_free(freeme);
 	}
+#ifdef CONFIG_SECURITY_SECCOMP
+	put_seccomp_checker_group(tsk->seccomp.checker_group);
+#endif
 }
 
 /**
@@ -813,6 +878,158 @@ static inline long seccomp_set_mode_filter(unsigned int flags,
 }
 #endif
 
+#ifdef CONFIG_SECURITY_SECCOMP
+
+/* Limit checkers number to 64 to be able to show matches with a bitmask. */
+#define SECCOMP_CHECKERS_MAX 64
+
+/* Limit arg group list and their checkers to 256KB. */
+#define SECCOMP_GROUP_CHECKERS_MAX_SIZE (1 << 18)
+
+static long seccomp_add_checker_group(unsigned int flags, const char __user *group)
+{
+	struct seccomp_checker_group kgroup;
+	struct seccomp_checker (*kcheckers)[], *user_checker;
+	struct seccomp_filter_checker_group *filter_group, *walker;
+	struct seccomp_filter_checker *kernel_obj;
+	unsigned int i;
+	unsigned long group_size, kcheckers_size, full_group_size;
+	long result;
+
+	if (!task_no_new_privs(current) &&
+	    security_capable_noaudit(current_cred(),
+				     current_user_ns(), CAP_SYS_ADMIN) != 0)
+		return -EACCES;
+	if (flags != 0 || !group)
+		return -EINVAL;
+
+#ifdef CONFIG_COMPAT
+	if (is_compat_task()) {
+		struct compat_seccomp_checker_group kgroup32;
+
+		if (copy_from_user(&kgroup32, group, sizeof(kgroup32)))
+			return -EFAULT;
+		kgroup.version = kgroup32.version;
+		kgroup.id = kgroup32.id;
+		kgroup.len = kgroup32.len;
+		kgroup.checkers = compat_ptr(kgroup32.checkers);
+	} else			/* Falls through to the if below */
+#endif /* CONFIG_COMPAT */
+	if (copy_from_user(&kgroup, group, sizeof(kgroup)))
+		return -EFAULT;
+
+	if (kgroup.version != 1)
+		return -EINVAL;
+	/* The group ID 0 means no evaluated checkers */
+	if (kgroup.id == 0)
+		return -EINVAL;
+	if (kgroup.len == 0)
+		return -EINVAL;
+	if (kgroup.len > SECCOMP_CHECKERS_MAX)
+		return -E2BIG;
+
+	/* Validate resulting checker_group ID and length. */
+	group_size = sizeof(*filter_group) +
+		kgroup.len * sizeof(filter_group->checkers[0]);
+	full_group_size = group_size;
+	for (walker = current->seccomp.checker_group;
+			walker; walker = walker->prev) {
+		if (walker->id == kgroup.id)
+			return -EINVAL;
+		/* TODO: add penalty? */
+		full_group_size += sizeof(*walker) +
+			walker->checkers_len * sizeof(walker->checkers[0]);
+	}
+	if (full_group_size > SECCOMP_GROUP_CHECKERS_MAX_SIZE)
+		return -ENOMEM;
+
+	kcheckers_size = kgroup.len * sizeof((*kcheckers)[0]);
+	kcheckers = kmalloc(kcheckers_size, GFP_KERNEL);
+	if (!kcheckers)
+		return -ENOMEM;
+
+#ifdef CONFIG_COMPAT
+	if (is_compat_task()) {
+		unsigned int i, kcheckers32_size;
+		struct compat_seccomp_checker (*kcheckers32)[];
+
+		kcheckers32_size = kgroup.len * sizeof((*kcheckers32)[0]);
+		kcheckers32 = kmalloc(kcheckers32_size, GFP_KERNEL);
+		if (!kcheckers32) {
+			result = -ENOMEM;
+			goto free_kcheckers;
+		}
+		if (copy_from_user(kcheckers32, kgroup.checkers, kcheckers32_size)) {
+			kfree(kcheckers32);
+			result = -EFAULT;
+			goto free_kcheckers;
+		}
+		for (i = 0; i < kgroup.len; i++) {
+			(*kcheckers)[i].check = (*kcheckers32)[i].check;
+			(*kcheckers)[i].type = (*kcheckers32)[i].type;
+			(*kcheckers)[i].len = (*kcheckers32)[i].len;
+			(*kcheckers)[i].object_path = compat_ptr((*kcheckers32)[i].checker);
+		}
+		kfree(kcheckers32);
+	} else			/* Falls through to the if below */
+#endif /* CONFIG_COMPAT */
+	if (copy_from_user(kcheckers, kgroup.checkers, kcheckers_size)) {
+		result = -EFAULT;
+		goto free_kcheckers;
+	}
+
+	/* filter_group->checkers must be zeroed to correctly be freed on error */
+	filter_group = kzalloc(group_size, GFP_KERNEL);
+	if (!filter_group) {
+		result = -ENOMEM;
+		goto free_kcheckers;
+	}
+	filter_group->prev = NULL;
+	filter_group->id = kgroup.id;
+	filter_group->checkers_len = kgroup.len;
+	for (i = 0; i < filter_group->checkers_len; i++) {
+		user_checker = &(*kcheckers)[i];
+		kernel_obj = &filter_group->checkers[i];
+		switch (user_checker->check) {
+		case SECCOMP_CHECK_FS_LITERAL:
+		case SECCOMP_CHECK_FS_BENEATH:
+			kernel_obj->check = user_checker->check;
+			result =
+			    seccomp_set_argcheck_fs(user_checker, kernel_obj);
+			if (result)
+				goto free_group;
+			break;
+		default:
+			result = -EINVAL;
+			goto free_group;
+		}
+	}
+
+	atomic_set(&filter_group->usage, 1);
+	filter_group->prev = current->seccomp.checker_group;
+	/* No need to update filter_group->prev->usage because it get one
+	 * reference from this filter but lose one from
+	 * current->seccomp.checker_group.
+	 */
+	current->seccomp.checker_group = filter_group;
+	/* XXX: Return the number of groups? */
+	result = 0;
+	goto free_kcheckers;
+
+free_group:
+	for (i = 0; i < filter_group->checkers_len; i++) {
+		kernel_obj = &filter_group->checkers[i];
+		if (kernel_obj->type)
+			put_seccomp_obj(kernel_obj);
+	}
+	kfree(filter_group);
+
+free_kcheckers:
+	kfree(kcheckers);
+	return result;
+}
+#endif /* CONFIG_SECURITY_SECCOMP */
+
 /* Common entry point for both prctl and syscall. */
 static long do_seccomp(unsigned int op, unsigned int flags,
 		       const char __user *uargs)
@@ -824,6 +1041,10 @@ static long do_seccomp(unsigned int op, unsigned int flags,
 		return seccomp_set_mode_strict();
 	case SECCOMP_SET_MODE_FILTER:
 		return seccomp_set_mode_filter(flags, uargs);
+#ifdef CONFIG_SECURITY_SECCOMP
+	case SECCOMP_ADD_CHECKER_GROUP:
+		return seccomp_add_checker_group(flags, uargs);
+#endif /* CONFIG_SECURITY_SECCOMP */
 	default:
 		return -EINVAL;
 	}
