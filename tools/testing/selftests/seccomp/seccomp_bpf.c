@@ -363,28 +363,6 @@ TEST_SIGNAL(unknown_ret_is_kill_inside, SIGSYS)
 	}
 }
 
-/* return code >= 0x80000000 is unused. */
-TEST_SIGNAL(unknown_ret_is_kill_above_allow, SIGSYS)
-{
-	struct sock_filter filter[] = {
-		BPF_STMT(BPF_RET|BPF_K, 0x90000000U),
-	};
-	struct sock_fprog prog = {
-		.len = (unsigned short)ARRAY_SIZE(filter),
-		.filter = filter,
-	};
-	long ret;
-
-	ret = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-	ASSERT_EQ(0, ret);
-
-	ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog);
-	ASSERT_EQ(0, ret);
-	EXPECT_EQ(0, syscall(__NR_getpid)) {
-		TH_LOG("getpid() shouldn't ever return");
-	}
-}
-
 TEST_SIGNAL(KILL_all, SIGSYS)
 {
 	struct sock_filter filter[] = {
