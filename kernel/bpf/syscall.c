@@ -719,6 +719,9 @@ static int bpf_prog_load(union bpf_attr *attr)
 
 	switch (type) {
 	case BPF_PROG_TYPE_SOCKET_FILTER:
+	case BPF_PROG_TYPE_LANDLOCK_FILE_OPEN:
+	case BPF_PROG_TYPE_LANDLOCK_FILE_PERMISSION:
+	case BPF_PROG_TYPE_LANDLOCK_MMAP_FILE:
 		break;
 	default:
 		if (!capable(CAP_SYS_ADMIN))

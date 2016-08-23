@@ -81,6 +81,9 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_CTX,		/* pointer to context */
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
+
+	ARG_PTR_TO_STRUCT_FILE,		/* pointer to struct file */
+	ARG_PTR_TO_STRUCT_CRED,		/* pointer to struct cred */
 };
 
 /* type of values returned from helper functions */
@@ -139,6 +142,10 @@ enum bpf_reg_type {
 	 */
 	PTR_TO_PACKET,
 	PTR_TO_PACKET_END,	 /* skb->data + headlen */
+
+	/* Landlock */
+	PTR_TO_STRUCT_FILE,
+	PTR_TO_STRUCT_CRED,
 };
 
 struct bpf_prog;

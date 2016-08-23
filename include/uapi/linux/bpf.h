@@ -102,6 +102,9 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_SCHED_CLS,
 	BPF_PROG_TYPE_SCHED_ACT,
 	BPF_PROG_TYPE_TRACEPOINT,
+	BPF_PROG_TYPE_LANDLOCK_FILE_OPEN,
+	BPF_PROG_TYPE_LANDLOCK_FILE_PERMISSION,
+	BPF_PROG_TYPE_LANDLOCK_MMAP_FILE,
 };
 
 #define BPF_PSEUDO_MAP_FD	1
@@ -403,5 +406,22 @@ struct landlock_handle {
 		__aligned_u64 glob;
 	};
 } __attribute__((aligned(8)));
+
+/**
+ * struct landlock_data
+ *
+ * @hook: LSM hook ID
+ * @cookie: value set by a seccomp-filter return value RET_LANDLOCK. This come
+ *          from a trusted seccomp-bpf program: the same process that loaded
+ *          this Landlock hook program.
+ * @args: LSM hook arguments, see include/linux/lsm_hooks.h for there
+ *        description and the LANDLOCK_HOOK* definitions from
+ *        security/landlock/lsm.c for their types.
+ */
+struct landlock_data {
+	__u32 hook;
+	__u16 cookie;
+	__u64 args[6];
+};
 
 #endif /* _UAPI__LINUX_BPF_H__ */

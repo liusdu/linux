@@ -36,7 +36,7 @@
 #include <linux/uaccess.h>
 
 #ifdef CONFIG_SECURITY_LANDLOCK
-#include <linux/bpf.h>	/* bpf_prog_put()  */
+#include <linux/bpf.h>	/* bpf_prog_put(), BPF_PROG_TYPE_LANDLOCK_*  */
 #endif /* CONFIG_SECURITY_LANDLOCK */
 
 /**
@@ -960,7 +960,10 @@ static long landlock_set_hook(unsigned int flags, const char __user *user_bpf_fd
 	if (IS_ERR(prog))
 		return PTR_ERR(prog);
 	switch (prog->type) {
-		/* TODO: add LSM hooks */
+	case BPF_PROG_TYPE_LANDLOCK_FILE_OPEN:
+	case BPF_PROG_TYPE_LANDLOCK_FILE_PERMISSION:
+	case BPF_PROG_TYPE_LANDLOCK_MMAP_FILE:
+		break;
 	default:
 		result = -EINVAL;
 		goto put_prog;
