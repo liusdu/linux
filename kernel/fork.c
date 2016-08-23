@@ -369,7 +369,12 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	 * the usage counts on the error path calling free_task.
 	 */
 	tsk->seccomp.filter = NULL;
-#endif
+#ifdef CONFIG_SECURITY_LANDLOCK
+	tsk->seccomp.landlock_filter = NULL;
+	tsk->seccomp.landlock_ret = NULL;
+	tsk->seccomp.landlock_prog = NULL;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+#endif /* CONFIG_SECCOMP */
 
 	setup_thread_stack(tsk, orig);
 	clear_user_return_notifier(tsk);
@@ -1200,9 +1205,12 @@ static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 	return 0;
 }
 
-static void copy_seccomp(struct task_struct *p)
+static int copy_seccomp(struct task_struct *p)
 {
 #ifdef CONFIG_SECCOMP
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct seccomp_landlock_ret *ret_walk;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	/*
 	 * Must be called with sighand->lock held, which is common to
 	 * all threads in the group. Holding cred_guard_mutex is not
@@ -1213,7 +1221,27 @@ static void copy_seccomp(struct task_struct *p)
 
 	/* Ref-count the new filter user, and assign it. */
 	get_seccomp_filter(current);
-	p->seccomp = current->seccomp;
+	p->seccomp.mode = current->seccomp.mode;
+	p->seccomp.filter = current->seccomp.filter;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	/* No copy for: landlock_filter, landlock_handle */
+	p->seccomp.landlock_prog = current->seccomp.landlock_prog;
+	if (p->seccomp.landlock_prog)
+		atomic_inc(&p->seccomp.landlock_prog->usage);
+	/* Deep copy for landlock_ret to avoid allocating for each syscall */
+	for (ret_walk = current->seccomp.landlock_ret;
+			ret_walk; ret_walk = ret_walk->prev) {
+		struct seccomp_landlock_ret *ret_new;
+
+		ret_new = dup_landlock_ret(ret_walk);
+		if (IS_ERR(ret_new)) {
+			put_landlock_ret(p->seccomp.landlock_ret);
+			return PTR_ERR(ret_new);
+		}
+		ret_new->prev = p->seccomp.landlock_ret;
+		p->seccomp.landlock_ret = ret_new;
+	}
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 	/*
 	 * Explicitly enable no_new_privs here in case it got set
@@ -1231,6 +1259,7 @@ static void copy_seccomp(struct task_struct *p)
 	if (p->seccomp.mode != SECCOMP_MODE_DISABLED)
 		set_tsk_thread_flag(p, TIF_SECCOMP);
 #endif
+	return 0;
 }
 
 SYSCALL_DEFINE1(set_tid_address, int __user *, tidptr)
@@ -1589,7 +1618,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	 * Copy seccomp details explicitly here, in case they were changed
 	 * before holding sighand lock.
 	 */
-	copy_seccomp(p);
+	retval = copy_seccomp(p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	/*
 	 * Process group and session signals need to be delivered to just the

@@ -6,6 +6,8 @@
  * Copyright (C) 2012 Google, Inc.
  * Will Drewry <wad@chromium.org>
  *
+ * Copyright (C) 2016  Mickaël Salaün <mic@digikod.net>
+ *
  * This defines a simple but solid secure-computing facility.
  *
  * Mode 1 uses a fixed list of allowed system calls.
@@ -33,6 +35,10 @@
 #include <linux/tracehook.h>
 #include <linux/uaccess.h>
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+#include <linux/bpf.h>	/* bpf_prog_put()  */
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 /**
  * struct seccomp_filter - container for seccomp BPF programs
  *
@@ -58,6 +64,9 @@ struct seccomp_filter {
 	atomic_t usage;
 	struct seccomp_filter *prev;
 	struct bpf_prog *prog;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct seccomp_filter *landlock_prev;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 };
 
 static void put_seccomp_filter(struct seccomp_filter *filter);
@@ -179,6 +188,10 @@ static u32 seccomp_run_filters(struct seccomp_data *sd)
 {
 	struct seccomp_data sd_local;
 	u32 ret = SECCOMP_RET_ALLOW;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct seccomp_landlock_ret *landlock_ret, *init_landlock_ret =
+		current->seccomp.landlock_ret;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	/* Make sure cross-thread synced filter points somewhere sane. */
 	struct seccomp_filter *f =
 			lockless_dereference(current->seccomp.filter);
@@ -191,6 +204,14 @@ static u32 seccomp_run_filters(struct seccomp_data *sd)
 		populate_seccomp_data(&sd_local);
 		sd = &sd_local;
 	}
+#ifdef CONFIG_SECURITY_LANDLOCK
+	for (landlock_ret = init_landlock_ret;
+			landlock_ret;
+			landlock_ret = landlock_ret->prev) {
+		/* No need to clean the cookie. */
+		landlock_ret->triggered = false;
+	}
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 	/*
 	 * All filters in the list are evaluated and the lowest BPF return
@@ -198,8 +219,27 @@ static u32 seccomp_run_filters(struct seccomp_data *sd)
 	 */
 	for (; f; f = f->prev) {
 		u32 cur_ret = BPF_PROG_RUN(f->prog, (void *)sd);
+		u32 action = cur_ret & SECCOMP_RET_ACTION;
+#ifdef CONFIG_SECURITY_LANDLOCK
+		u32 data = cur_ret & SECCOMP_RET_DATA;
+		if (action == SECCOMP_RET_LANDLOCK) {
+			/*
+			 * Keep track of filters from the current task that
+			 * trigger a RET_LANDLOCK.
+			 */
+			for (landlock_ret = init_landlock_ret;
+					landlock_ret;
+					landlock_ret = landlock_ret->prev) {
+				if (landlock_ret->filter == f) {
+					landlock_ret->triggered = true;
+					landlock_ret->cookie = data;
+					break;
+				}
+			}
+		}
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
-		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
+		if (action < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
 	}
 	return ret;
@@ -426,6 +466,9 @@ static long seccomp_attach_filter(unsigned int flags,
 {
 	unsigned long total_insns;
 	struct seccomp_filter *walker;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct seccomp_landlock_ret *landlock_ret;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 	assert_spin_locked(&current->sighand->siglock);
 
@@ -450,6 +493,21 @@ static long seccomp_attach_filter(unsigned int flags,
 	 * task reference.
 	 */
 	filter->prev = current->seccomp.filter;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	filter->landlock_prev = current->seccomp.landlock_filter;
+	current->seccomp.landlock_filter = filter;
+
+	/* Dedicated Landlock result */
+	landlock_ret = kmalloc(sizeof(*landlock_ret), GFP_KERNEL);
+	if (!landlock_ret)
+		return -ENOMEM;
+	landlock_ret->prev = current->seccomp.landlock_ret;
+	atomic_inc(&filter->usage);
+	landlock_ret->filter = filter;
+	landlock_ret->cookie = 0;
+	landlock_ret->triggered = false;
+	current->seccomp.landlock_ret = landlock_ret;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	current->seccomp.filter = filter;
 
 	/* Now that the new filter is in place, synchronize to all threads. */
@@ -458,6 +516,55 @@ static long seccomp_attach_filter(unsigned int flags,
 
 	return 0;
 }
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+struct seccomp_landlock_ret *dup_landlock_ret(
+		struct seccomp_landlock_ret *ret_orig)
+{
+	struct seccomp_landlock_ret *ret_new;
+
+	if (!ret_orig)
+		return NULL;
+	ret_new = kmalloc(sizeof(*ret_new), GFP_KERNEL);
+	if (!ret_new)
+		return ERR_PTR(-ENOMEM);
+	ret_new->filter = ret_orig->filter;
+	if (ret_new->filter)
+		atomic_inc(&ret_new->filter->usage);
+	ret_new->cookie = 0;
+	ret_new->triggered = false;
+	ret_new->prev = NULL;
+	return ret_new;
+}
+
+static void put_landlock_prog(struct seccomp_landlock_prog *landlock_prog)
+{
+	struct seccomp_landlock_prog *orig = landlock_prog;
+
+	/* Clean up single-reference branches iteratively. */
+	while (orig && atomic_dec_and_test(&orig->usage)) {
+		struct seccomp_landlock_prog *freeme = orig;
+
+		put_seccomp_filter(orig->filter);
+		bpf_prog_put(orig->prog);
+		orig = orig->prev;
+		kfree(freeme);
+	}
+}
+
+void put_landlock_ret(struct seccomp_landlock_ret *landlock_ret)
+{
+	struct seccomp_landlock_ret *orig = landlock_ret;
+
+	while (orig) {
+		struct seccomp_landlock_ret *freeme = orig;
+
+		put_seccomp_filter(orig->filter);
+		orig = orig->prev;
+		kfree(freeme);
+	}
+}
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 /* get_seccomp_filter - increments the reference count of the filter on @tsk */
 void get_seccomp_filter(struct task_struct *tsk)
@@ -485,7 +592,9 @@ static void put_seccomp_filter(struct seccomp_filter *filter)
 	/* Clean up single-reference branches iteratively. */
 	while (orig && atomic_dec_and_test(&orig->usage)) {
 		struct seccomp_filter *freeme = orig;
+
 		orig = orig->prev;
+		/* must not put orig->landlock_prev */
 		seccomp_filter_free(freeme);
 	}
 }
@@ -493,6 +602,10 @@ static void put_seccomp_filter(struct seccomp_filter *filter)
 void put_seccomp(struct task_struct *tsk)
 {
 	put_seccomp_filter(tsk->seccomp.filter);
+#ifdef CONFIG_SECURITY_LANDLOCK
+	put_landlock_prog(tsk->seccomp.landlock_prog);
+	put_landlock_ret(tsk->seccomp.landlock_ret);
+#endif /* CONFIG_SECURITY_LANDLOCK */
 }
 
 /**
@@ -609,6 +722,8 @@ static u32 __seccomp_phase1_filter(int this_syscall, struct seccomp_data *sd)
 	case SECCOMP_RET_TRACE:
 		return filter_ret;  /* Save the rest for phase 2. */
 
+	case SECCOMP_RET_LANDLOCK:
+		/* fall through */
 	case SECCOMP_RET_ALLOW:
 		return SECCOMP_PHASE1_OK;
 
@@ -814,6 +929,75 @@ static inline long seccomp_set_mode_filter(unsigned int flags,
 }
 #endif
 
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+
+/* Limit Landlock programs to 256KB. */
+#define LANDLOCK_PROG_LIST_MAX_PAGES (1 << 6)
+
+static long landlock_set_hook(unsigned int flags, const char __user *user_bpf_fd)
+{
+	long result;
+	unsigned long prog_list_pages;
+	struct seccomp_landlock_prog *landlock_prog, *cp_walker;
+	int bpf_fd;
+	struct bpf_prog *prog;
+
+	if (!task_no_new_privs(current) &&
+	    security_capable_noaudit(current_cred(),
+				     current_user_ns(), CAP_SYS_ADMIN) != 0)
+		return -EACCES;
+	if (!user_bpf_fd)
+		return -EINVAL;
+
+	/* could be used for TSYNC */
+	if (flags)
+		return -EINVAL;
+
+	if (copy_from_user(&bpf_fd, user_bpf_fd, sizeof(user_bpf_fd)))
+		return -EFAULT;
+	prog = bpf_prog_get(bpf_fd);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
+	switch (prog->type) {
+		/* TODO: add LSM hooks */
+	default:
+		result = -EINVAL;
+		goto put_prog;
+	}
+
+	/* validate allocated memory */
+	prog_list_pages = prog->pages;
+	for (cp_walker = current->seccomp.landlock_prog; cp_walker;
+			cp_walker = cp_walker->prev) {
+		/* TODO: add penalty for each prog? */
+		prog_list_pages += cp_walker->prog->pages;
+	}
+	if (prog_list_pages > LANDLOCK_PROG_LIST_MAX_PAGES) {
+		result = -ENOMEM;
+		goto put_prog;
+	}
+
+	landlock_prog = kmalloc(sizeof(*landlock_prog), GFP_KERNEL);
+	if (!landlock_prog) {
+		result = -ENOMEM;
+		goto put_prog;
+	}
+	landlock_prog->prog = prog;
+	landlock_prog->filter = current->seccomp.filter;
+	if (landlock_prog->filter)
+		atomic_inc(&landlock_prog->filter->usage);
+	atomic_set(&landlock_prog->usage, 1);
+	landlock_prog->prev = current->seccomp.landlock_prog;
+	current->seccomp.landlock_prog = landlock_prog;
+	return 0;
+
+put_prog:
+	bpf_prog_put(prog);
+	return result;
+}
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 /* Common entry point for both prctl and syscall. */
 static long do_seccomp(unsigned int op, unsigned int flags,
 		       const char __user *uargs)
@@ -825,6 +1009,10 @@ static long do_seccomp(unsigned int op, unsigned int flags,
 		return seccomp_set_mode_strict();
 	case SECCOMP_SET_MODE_FILTER:
 		return seccomp_set_mode_filter(flags, uargs);
+#ifdef CONFIG_SECURITY_LANDLOCK
+	case SECCOMP_SET_LANDLOCK_HOOK:
+		return landlock_set_hook(flags, uargs);
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	default:
 		return -EINVAL;
 	}
