@@ -251,6 +251,12 @@ static inline void bpf_long_memcpy(void *dst, const void *src, u32 size)
 
 /* verify correctness of eBPF program */
 int bpf_check(struct bpf_prog **fp, union bpf_attr *attr);
+
+/* helper to convert user pointers passed inside __aligned_u64 fields */
+static inline void __user *u64_to_ptr(__u64 val)
+{
+	return (void __user *) (unsigned long) val;
+}
 #else
 static inline void bpf_register_prog_type(struct bpf_prog_type_list *tl)
 {
