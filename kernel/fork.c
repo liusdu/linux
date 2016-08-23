@@ -235,7 +235,7 @@ void free_task(struct task_struct *tsk)
 	free_thread_stack(tsk->stack);
 	rt_mutex_debug_task_free(tsk);
 	ftrace_graph_exit_task(tsk);
-	put_seccomp_filter(tsk);
+	put_seccomp(tsk);
 	arch_release_task_struct(tsk);
 	free_task_struct(tsk);
 }
