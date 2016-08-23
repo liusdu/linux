@@ -11,7 +11,6 @@
 #include <asm/current.h>
 #include <linux/bpf.h> /* enum bpf_reg_type, struct landlock_data */
 #include <linux/cred.h>
-#include <linux/err.h> /* MAX_ERRNO */
 #include <linux/filter.h> /* struct bpf_prog, BPF_PROG_RUN() */
 #include <linux/kernel.h> /* FIELD_SIZEOF() */
 #include <linux/lsm_hooks.h>
@@ -104,8 +103,9 @@ static int landlock_run_prog(__u64 args[6])
 				}
 			}
 			if (!ret) {
-				if (cur_ret > MAX_ERRNO)
-					ret = MAX_ERRNO;
+				/* check errno to not mess with kernel code */
+				if (cur_ret > _ERRNO_LAST)
+					ret = EPERM;
 				else
 					ret = cur_ret;
 			}
