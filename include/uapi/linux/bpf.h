@@ -84,6 +84,15 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_PERCPU_HASH,
 	BPF_MAP_TYPE_PERCPU_ARRAY,
 	BPF_MAP_TYPE_STACK_TRACE,
+	BPF_MAP_TYPE_LANDLOCK_ARRAY,
+};
+
+enum bpf_map_array_type {
+	BPF_MAP_ARRAY_TYPE_UNSPEC,
+};
+
+enum bpf_map_handle_type {
+	BPF_MAP_HANDLE_TYPE_UNSPEC,
 };
 
 enum bpf_prog_type {
@@ -385,5 +394,14 @@ struct bpf_tunnel_key {
 	__u16 tunnel_ext;
 	__u32 tunnel_label;
 };
+
+/* Map handle entry */
+struct landlock_handle {
+	__u32 type; /* enum bpf_map_handle_type */
+	union {
+		__u32 fd;
+		__aligned_u64 glob;
+	};
+} __attribute__((aligned(8)));
 
 #endif /* _UAPI__LINUX_BPF_H__ */

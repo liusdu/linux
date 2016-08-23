@@ -12,6 +12,10 @@
 #include <linux/file.h>
 #include <linux/percpu.h>
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+#include <linux/fs.h> /* struct file */
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 struct bpf_map;
 
 /* map is generic key/value storage optionally accesible by eBPF programs */
@@ -34,6 +38,7 @@ struct bpf_map_ops {
 struct bpf_map {
 	atomic_t refcnt;
 	enum bpf_map_type map_type;
+	enum bpf_map_array_type map_array_type;
 	u32 key_size;
 	u32 value_size;
 	u32 max_entries;
@@ -183,12 +188,25 @@ struct bpf_array {
 	 */
 	enum bpf_prog_type owner_prog_type;
 	bool owner_jited;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	u32 n_entries;	/* number of entries in a handle array */
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	union {
 		char value[0] __aligned(8);
 		void *ptrs[0] __aligned(8);
 		void __percpu *pptrs[0] __aligned(8);
 	};
 };
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+struct map_landlock_handle {
+	u32 type;
+	union {
+		struct file *file;
+	};
+};
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 #define MAX_TAIL_CALL_CNT 32
 
 u64 bpf_tail_call(u64 ctx, u64 r2, u64 index, u64 r4, u64 r5);

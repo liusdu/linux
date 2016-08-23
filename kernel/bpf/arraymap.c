@@ -16,6 +16,8 @@
 #include <linux/mm.h>
 #include <linux/filter.h>
 #include <linux/perf_event.h>
+#include <linux/file.h> /* fput() */
+#include <linux/fs.h> /* struct file */
 
 static void bpf_array_free_percpu(struct bpf_array *array)
 {
@@ -491,3 +493,182 @@ static int __init register_perf_event_array_map(void)
 	return 0;
 }
 late_initcall(register_perf_event_array_map);
+
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+static struct bpf_map *landlock_array_map_alloc(union bpf_attr *attr)
+{
+	if (attr->value_size != sizeof(struct landlock_handle))
+		return ERR_PTR(-EINVAL);
+	attr->value_size = sizeof(struct map_landlock_handle);
+
+	return array_map_alloc(attr);
+}
+
+static void landlock_put_handle(struct map_landlock_handle *handle)
+{
+	switch (handle->type) {
+		/* TODO: add handle types */
+	default:
+		WARN_ON(1);
+	}
+	/* safeguard */
+	handle->type = BPF_MAP_HANDLE_TYPE_UNSPEC;
+}
+
+static void landlock_array_map_free(struct bpf_map *map)
+{
+	struct bpf_array *array = container_of(map, struct bpf_array, map);
+	int i;
+
+	synchronize_rcu();
+
+	for (i = 0; i < array->n_entries; i++)
+		landlock_put_handle((struct map_landlock_handle *)
+				(array->value + array->elem_size * i));
+	kvfree(array);
+}
+
+static enum bpf_map_array_type landlock_get_array_type(
+		enum bpf_map_handle_type handle_type)
+{
+	switch (handle_type) {
+		/* TODO: add handle types */
+	case BPF_MAP_HANDLE_TYPE_UNSPEC:
+	default:
+		return -EINVAL;
+	}
+}
+
+#define FGET_OR_RET(file, fd) { \
+	file = fget(fd); \
+	if (unlikely(IS_ERR(file))) \
+		return PTR_ERR(file); \
+	}
+
+static inline long landlock_store_handle(struct map_landlock_handle *dst,
+		struct landlock_handle *khandle)
+{
+	struct path kpath;
+
+	if (unlikely(!khandle))
+		return -EINVAL;
+
+	/* access control already done for the FD */
+
+	switch (khandle->type) {
+		/* TODO: add handle types */
+	default:
+		WARN_ON(1);
+		path_put(&kpath);
+		return -EINVAL;
+	}
+	dst->type = khandle->type;
+	return 0;
+}
+
+static void *nop_map_lookup_elem(struct bpf_map *map, void *key)
+{
+	return ERR_PTR(-EINVAL);
+}
+
+/* called from syscall or from eBPF program */
+static int landlock_array_map_update_elem(struct bpf_map *map, void *key,
+		void *value, u64 map_flags)
+{
+	struct bpf_array *array = container_of(map, struct bpf_array, map);
+	u32 index = *(u32 *)key;
+	enum bpf_map_array_type array_type;
+	int ret;
+	struct landlock_handle *khandle = (struct landlock_handle *)value;
+	struct map_landlock_handle *handle, handle_new;
+
+	if (unlikely(map_flags > BPF_EXIST))
+		/* unknown flags */
+		return -EINVAL;
+
+	if (unlikely(index >= array->map.max_entries))
+		/* all elements were pre-allocated, cannot insert a new one */
+		return -E2BIG;
+
+	/* FIXME: add lock */
+	if (unlikely(index > array->n_entries))
+		/* only replace an existing entry or append a new one */
+		return -EINVAL;
+
+	/* TODO: handle all flags, not only BPF_ANY */
+	if (unlikely(map_flags == BPF_NOEXIST))
+		/* all elements already exist */
+		return -EEXIST;
+
+	if (unlikely(!khandle))
+		return -EINVAL;
+
+	array_type = landlock_get_array_type(khandle->type);
+	if (array_type < 0)
+		return array_type;
+
+	if (!map->map_array_type) {
+		/* set the initial set type */
+		map->map_array_type = array_type;
+	} else if (map->map_array_type != array_type) {
+		return -EINVAL;
+	}
+
+	ret = landlock_store_handle(&handle_new, khandle);
+	if (!ret) {
+		/* map->value_size == sizeof(struct map_landlock_handle) */
+		handle = (struct map_landlock_handle *)
+			(array->value + array->elem_size * index);
+		/* FIXME: make atomic update */
+		if (index < array->n_entries)
+			landlock_put_handle(handle);
+		*handle = handle_new;
+		/* TODO: use atomic_inc? */
+		if (index == array->n_entries)
+			array->n_entries++;
+	}
+	/* FIXME: unlock */
+
+	return ret;
+}
+
+/* called from syscall or from eBPF program */
+static int landlock_array_map_delete_elem(struct bpf_map *map, void *key)
+{
+	struct bpf_array *array = container_of(map, struct bpf_array, map);
+	u32 index = *(u32 *)key;
+
+	/* only remove the last element */
+	/* TODO: use atomic_dec? */
+	if (array->n_entries && index == array->n_entries - 1) {
+		array->n_entries--;
+		landlock_put_handle((struct map_landlock_handle *)
+				(array->value + array->elem_size * index));
+		return 0;
+	}
+	return -EINVAL;
+}
+
+static const struct bpf_map_ops landlock_array_ops = {
+	.map_alloc = landlock_array_map_alloc,
+	.map_free = landlock_array_map_free,
+	.map_get_next_key = array_map_get_next_key,
+	.map_lookup_elem = nop_map_lookup_elem,
+	.map_update_elem = landlock_array_map_update_elem,
+	.map_delete_elem = landlock_array_map_delete_elem,
+};
+
+static struct bpf_map_type_list landlock_array_type __read_mostly = {
+	.ops = &landlock_array_ops,
+	.type = BPF_MAP_TYPE_LANDLOCK_ARRAY,
+};
+
+static int __init register_landlock_array_map(void)
+{
+	bpf_register_map_type(&landlock_array_type);
+	return 0;
+}
+
+late_initcall(register_landlock_array_map);
+#endif /* CONFIG_SECURITY_LANDLOCK */

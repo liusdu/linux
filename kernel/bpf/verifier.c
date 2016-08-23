@@ -1716,6 +1716,15 @@ static struct bpf_map *ld_imm64_to_map_ptr(struct bpf_insn *insn)
 	return (struct bpf_map *) (unsigned long) imm64;
 }
 
+static inline enum bpf_reg_type bpf_reg_type_from_map(struct bpf_map *map)
+{
+	switch (map->map_array_type) {
+	case BPF_MAP_ARRAY_TYPE_UNSPEC:
+	default:
+		return CONST_PTR_TO_MAP;
+	}
+}
+
 /* verify BPF_LD_IMM64 instruction */
 static int check_ld_imm(struct verifier_env *env, struct bpf_insn *insn)
 {
@@ -1742,8 +1751,9 @@ static int check_ld_imm(struct verifier_env *env, struct bpf_insn *insn)
 	/* replace_map_fd_with_map_ptr() should have caught bad ld_imm64 */
 	BUG_ON(insn->src_reg != BPF_PSEUDO_MAP_FD);
 
-	regs[insn->dst_reg].type = CONST_PTR_TO_MAP;
 	regs[insn->dst_reg].map_ptr = ld_imm64_to_map_ptr(insn);
+	regs[insn->dst_reg].type =
+		bpf_reg_type_from_map(regs[insn->dst_reg].map_ptr);
 	return 0;
 }
 
