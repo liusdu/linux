@@ -19,6 +19,12 @@
 #include <linux/file.h> /* fput() */
 #include <linux/fs.h> /* struct file */
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+#ifdef CONFIG_CGROUPS
+#include <linux/cgroup-defs.h> /* struct cgroup_subsys_state */
+#endif	/* CONFIG_CGROUPS */
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 static void bpf_array_free_percpu(struct bpf_array *array)
 {
 	int i;
@@ -514,6 +520,12 @@ static void landlock_put_handle(struct map_landlock_handle *handle)
 		else
 			WARN_ON(1);
 		break;
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_CGROUP_FD:
+		if (likely(handle->css))
+			css_put(handle->css);
+		else
+			WARN_ON(1);
+		break;
 	default:
 		WARN_ON(1);
 	}
@@ -541,6 +553,10 @@ static enum bpf_map_array_type landlock_get_array_type(
 	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
 	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB:
 		return BPF_MAP_ARRAY_TYPE_LANDLOCK_FS;
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_CGROUP_FD:
+#ifdef CONFIG_CGROUPS
+		return BPF_MAP_ARRAY_TYPE_LANDLOCK_CGROUP;
+#endif	/* CONFIG_CGROUPS */
 	case BPF_MAP_HANDLE_TYPE_UNSPEC:
 	default:
 		return -EINVAL;
@@ -557,6 +573,9 @@ static inline long landlock_store_handle(struct map_landlock_handle *dst,
 		struct landlock_handle *khandle)
 {
 	struct path kpath;
+#ifdef CONFIG_CGROUPS
+	struct cgroup_subsys_state *css;
+#endif	/* CONFIG_CGROUPS */
 	struct file *handle_file;
 
 	if (unlikely(!khandle))
@@ -569,6 +588,17 @@ static inline long landlock_store_handle(struct map_landlock_handle *dst,
 		FGET_OR_RET(handle_file, khandle->fd);
 		dst->file = handle_file;
 		break;
+#ifdef CONFIG_CGROUPS
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_CGROUP_FD:
+		FGET_OR_RET(handle_file, khandle->fd);
+		css = css_tryget_online_from_dir(file_dentry(handle_file), NULL);
+		fput(handle_file);
+		/* NULL css check done by css_tryget_online_from_dir() */
+		if (IS_ERR(css))
+			return PTR_ERR(css);
+		dst->css = css;
+		break;
+#endif	/* CONFIG_CGROUPS */
 	default:
 		WARN_ON(1);
 		path_put(&kpath);

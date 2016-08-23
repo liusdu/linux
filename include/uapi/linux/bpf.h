@@ -90,12 +90,14 @@ enum bpf_map_type {
 enum bpf_map_array_type {
 	BPF_MAP_ARRAY_TYPE_UNSPEC,
 	BPF_MAP_ARRAY_TYPE_LANDLOCK_FS,
+	BPF_MAP_ARRAY_TYPE_LANDLOCK_CGROUP,
 };
 
 enum bpf_map_handle_type {
 	BPF_MAP_HANDLE_TYPE_UNSPEC,
 	BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD,
 	BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB,
+	BPF_MAP_HANDLE_TYPE_LANDLOCK_CGROUP_FD,
 };
 
 enum bpf_map_array_op {
@@ -363,6 +365,19 @@ enum bpf_func_id {
 	 * 1 otherwise, or a negative value if an error occurred.
 	 */
 	BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file,
+
+	/**
+	 * bpf_landlock_cmp_cgroup_beneath(opt, map, map_op)
+	 * Check if the current process is a leaf of cgroup handles
+	 *
+	 * @opt: check options (e.g. LANDLOCK_FLAG_OPT_REVERSE)
+	 * @map: handles to compare against
+	 * @map_op: which elements of the map to use (e.g. BPF_MAP_ARRAY_OP_OR)
+	 *
+	 * Return: 0 if the current cgroup is the sam or beneath the handle,
+	 * 1 otherwise, or a negative value if an error occurred.
+	 */
+	BPF_FUNC_landlock_cmp_cgroup_beneath,
 
 	__BPF_FUNC_MAX_ID,
 };

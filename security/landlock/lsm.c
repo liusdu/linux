@@ -18,6 +18,10 @@
 
 #include "checker_fs.h"
 
+#ifdef CONFIG_CGROUPS
+#include "checker_cgroup.h"
+#endif /* CONFIG_CGROUPS */
+
 #define LANDLOCK_HOOK_INIT(NAME) LSM_HOOK_INIT(NAME, landlock_hook_##NAME)
 
 #define LANDLOCK_HOOKx(X, NAME, CNAME, ...)				\
@@ -124,6 +128,10 @@ static const struct bpf_func_proto *bpf_landlock_func_proto(
 		return &bpf_landlock_cmp_fs_prop_with_struct_file_proto;
 	case BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file:
 		return &bpf_landlock_cmp_fs_beneath_with_struct_file_proto;
+	case BPF_FUNC_landlock_cmp_cgroup_beneath:
+#ifdef CONFIG_CGROUPS
+		return &bpf_landlock_cmp_cgroup_beneath_proto;
+#endif	/* CONFIG_CGROUPS */
 	default:
 		return NULL;
 	}

@@ -14,6 +14,9 @@
 
 #ifdef CONFIG_SECURITY_LANDLOCK
 #include <linux/fs.h> /* struct file */
+#ifdef CONFIG_CGROUPS
+#include <linux/cgroup-defs.h> /* struct cgroup_subsys_state */
+#endif	/* CONFIG_CGROUPS */
 #endif /* CONFIG_SECURITY_LANDLOCK */
 
 struct bpf_map;
@@ -85,6 +88,7 @@ enum bpf_arg_type {
 	ARG_PTR_TO_STRUCT_FILE,		/* pointer to struct file */
 	ARG_PTR_TO_STRUCT_CRED,		/* pointer to struct cred */
 	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS handle */
+	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_CGROUP,	/* pointer to Landlock cgroup handle */
 };
 
 /* type of values returned from helper functions */
@@ -148,6 +152,7 @@ enum bpf_reg_type {
 	PTR_TO_STRUCT_FILE,
 	PTR_TO_STRUCT_CRED,
 	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
+	CONST_PTR_TO_LANDLOCK_HANDLE_CGROUP,
 };
 
 struct bpf_prog;
@@ -212,6 +217,9 @@ struct map_landlock_handle {
 	u32 type; /* e.g. BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD */
 	union {
 		struct file *file;
+#ifdef CONFIG_CGROUPS
+		struct cgroup_subsys_state *css;
+#endif	/* CONFIG_CGROUPS */
 	};
 };
 #endif /* CONFIG_SECURITY_LANDLOCK */

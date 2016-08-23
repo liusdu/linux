@@ -10,6 +10,9 @@ config SECURITY_LANDLOCK
 	  of stacked eBPF programs for some LSM hooks. Each program can do some
 	  access comparison to check if an access request is legitimate.
 
+	  It is recommended to enable cgroups to be able to match a policy
+	  according to a group of processes.
+
 	  Further information about eBPF can be found in
 	  Documentation/networking/filter.txt
 
