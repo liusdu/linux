@@ -84,6 +84,7 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_STRUCT_FILE,		/* pointer to struct file */
 	ARG_PTR_TO_STRUCT_CRED,		/* pointer to struct cred */
+	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS handle */
 };
 
 /* type of values returned from helper functions */
@@ -146,6 +147,7 @@ enum bpf_reg_type {
 	/* Landlock */
 	PTR_TO_STRUCT_FILE,
 	PTR_TO_STRUCT_CRED,
+	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
 };
 
 struct bpf_prog;
@@ -207,7 +209,7 @@ struct bpf_array {
 
 #ifdef CONFIG_SECURITY_LANDLOCK
 struct map_landlock_handle {
-	u32 type;
+	u32 type; /* e.g. BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD */
 	union {
 		struct file *file;
 	};

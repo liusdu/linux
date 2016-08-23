@@ -16,6 +16,8 @@
 #include <linux/lsm_hooks.h>
 #include <linux/seccomp.h> /* struct seccomp_* */
 
+#include "checker_fs.h"
+
 #define LANDLOCK_HOOK_INIT(NAME) LSM_HOOK_INIT(NAME, landlock_hook_##NAME)
 
 #define LANDLOCK_HOOKx(X, NAME, CNAME, ...)				\
@@ -117,7 +119,14 @@ static int landlock_run_prog(__u64 args[6])
 static const struct bpf_func_proto *bpf_landlock_func_proto(
 		enum bpf_func_id func_id)
 {
-	return NULL;
+	switch (func_id) {
+	case BPF_FUNC_landlock_cmp_fs_prop_with_struct_file:
+		return &bpf_landlock_cmp_fs_prop_with_struct_file_proto;
+	case BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file:
+		return &bpf_landlock_cmp_fs_beneath_with_struct_file_proto;
+	default:
+		return NULL;
+	}
 }
 
 static u32 landlock_convert_ctx_access(enum bpf_access_type type, int dst_reg,

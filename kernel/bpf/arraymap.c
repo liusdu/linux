@@ -508,7 +508,12 @@ static struct bpf_map *landlock_array_map_alloc(union bpf_attr *attr)
 static void landlock_put_handle(struct map_landlock_handle *handle)
 {
 	switch (handle->type) {
-		/* TODO: add handle types */
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+		if (likely(handle->file))
+			fput(handle->file);
+		else
+			WARN_ON(1);
+		break;
 	default:
 		WARN_ON(1);
 	}
@@ -533,7 +538,9 @@ static enum bpf_map_array_type landlock_get_array_type(
 		enum bpf_map_handle_type handle_type)
 {
 	switch (handle_type) {
-		/* TODO: add handle types */
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB:
+		return BPF_MAP_ARRAY_TYPE_LANDLOCK_FS;
 	case BPF_MAP_HANDLE_TYPE_UNSPEC:
 	default:
 		return -EINVAL;
@@ -550,6 +557,7 @@ static inline long landlock_store_handle(struct map_landlock_handle *dst,
 		struct landlock_handle *khandle)
 {
 	struct path kpath;
+	struct file *handle_file;
 
 	if (unlikely(!khandle))
 		return -EINVAL;
@@ -557,7 +565,10 @@ static inline long landlock_store_handle(struct map_landlock_handle *dst,
 	/* access control already done for the FD */
 
 	switch (khandle->type) {
-		/* TODO: add handle types */
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+		FGET_OR_RET(handle_file, khandle->fd);
+		dst->file = handle_file;
+		break;
 	default:
 		WARN_ON(1);
 		path_put(&kpath);
