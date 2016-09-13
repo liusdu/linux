@@ -584,7 +584,9 @@ enum landlock_hook_id {
 #define _LANDLOCK_FLAG_ORIGIN_MASK	((1 << 3) - 1)
 
 /* context of function access flags */
-#define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 0) - 1)
+#define LANDLOCK_FLAG_ACCESS_UPDATE	(1 << 0)
+#define LANDLOCK_FLAG_ACCESS_DEBUG	(1 << 1)
+#define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 2) - 1)
 
 /* Handle check flags */
 #define LANDLOCK_FLAG_FS_DENTRY		(1 << 0)

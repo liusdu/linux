@@ -202,11 +202,57 @@ seccomp_int:
 static const struct bpf_func_proto *bpf_landlock_func_proto(
 		enum bpf_func_id func_id, union bpf_prog_subtype *prog_subtype)
 {
+	bool access_update = !!(prog_subtype->landlock_hook.access &
+			LANDLOCK_FLAG_ACCESS_UPDATE);
+	bool access_debug = !!(prog_subtype->landlock_hook.access &
+			LANDLOCK_FLAG_ACCESS_DEBUG);
+
 	switch (func_id) {
 	case BPF_FUNC_landlock_cmp_fs_prop_with_struct_file:
 		return &bpf_landlock_cmp_fs_prop_with_struct_file_proto;
 	case BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file:
 		return &bpf_landlock_cmp_fs_beneath_with_struct_file_proto;
+
+	/* access_update */
+	case BPF_FUNC_map_lookup_elem:
+		if (access_update)
+			return &bpf_map_lookup_elem_proto;
+		return NULL;
+	case BPF_FUNC_map_update_elem:
+		if (access_update)
+			return &bpf_map_update_elem_proto;
+		return NULL;
+	case BPF_FUNC_map_delete_elem:
+		if (access_update)
+			return &bpf_map_delete_elem_proto;
+		return NULL;
+	case BPF_FUNC_tail_call:
+		if (access_update)
+			return &bpf_tail_call_proto;
+		return NULL;
+
+	/* access_debug */
+	case BPF_FUNC_trace_printk:
+		if (access_debug)
+			return bpf_get_trace_printk_proto();
+		return NULL;
+	case BPF_FUNC_get_prandom_u32:
+		if (access_debug)
+			return &bpf_get_prandom_u32_proto;
+		return NULL;
+	case BPF_FUNC_get_current_pid_tgid:
+		if (access_debug)
+			return &bpf_get_current_pid_tgid_proto;
+		return NULL;
+	case BPF_FUNC_get_current_uid_gid:
+		if (access_debug)
+			return &bpf_get_current_uid_gid_proto;
+		return NULL;
+	case BPF_FUNC_get_current_comm:
+		if (access_debug)
+			return &bpf_get_current_comm_proto;
+		return NULL;
+
 	default:
 		return NULL;
 	}
@@ -346,6 +392,14 @@ static inline bool bpf_landlock_is_valid_subtype(
 		return false;
 #endif /* !CONFIG_SECCOMP_FILTER */
 	if (prog_subtype->landlock_hook.access & ~_LANDLOCK_FLAG_ACCESS_MASK)
+		return false;
+
+	/* check access flags */
+	if (prog_subtype->landlock_hook.access & LANDLOCK_FLAG_ACCESS_UPDATE &&
+			!capable(CAP_SYS_ADMIN))
+		return false;
+	if (prog_subtype->landlock_hook.access & LANDLOCK_FLAG_ACCESS_DEBUG &&
+			!capable(CAP_SYS_ADMIN))
 		return false;
 
 	return true;
