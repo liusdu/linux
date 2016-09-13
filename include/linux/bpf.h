@@ -87,6 +87,7 @@ enum bpf_arg_type {
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
 
 	ARG_PTR_TO_STRUCT_FILE,		/* pointer to struct file */
+	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS handle */
 };
 
 /* type of values returned from helper functions */
@@ -148,6 +149,7 @@ enum bpf_reg_type {
 
 	/* Landlock */
 	PTR_TO_STRUCT_FILE,
+	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
 };
 
 struct bpf_prog;
@@ -214,6 +216,9 @@ struct bpf_array {
 #ifdef CONFIG_SECURITY_LANDLOCK
 struct map_landlock_handle {
 	u32 type; /* enum bpf_map_handle_type */
+	union {
+		struct path path;
+	};
 };
 #endif /* CONFIG_SECURITY_LANDLOCK */
 
@@ -347,6 +352,11 @@ extern const struct bpf_func_proto bpf_get_current_comm_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_push_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_pop_proto;
 extern const struct bpf_func_proto bpf_get_stackid_proto;
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+extern const struct bpf_func_proto bpf_landlock_cmp_fs_prop_with_struct_file_proto;
+extern const struct bpf_func_proto bpf_landlock_cmp_fs_beneath_with_struct_file_proto;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);

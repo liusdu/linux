@@ -17,6 +17,8 @@
 #include <linux/lsm_hooks.h>
 #include <linux/types.h> /* uintptr_t */
 
+#include "checker_fs.h"
+
 #define LANDLOCK_MAP0(m, ...)
 #define LANDLOCK_MAP1(m, d, t, a) m(d, t, a)
 #define LANDLOCK_MAP2(m, d, t, a, ...) m(d, t, a), LANDLOCK_MAP1(m, __VA_ARGS__)
@@ -70,6 +72,10 @@ static const struct bpf_func_proto *bpf_landlock_func_proto(
 		enum bpf_func_id func_id, union bpf_prog_subtype *prog_subtype)
 {
 	switch (func_id) {
+	case BPF_FUNC_landlock_cmp_fs_prop_with_struct_file:
+		return &bpf_landlock_cmp_fs_prop_with_struct_file_proto;
+	case BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file:
+		return &bpf_landlock_cmp_fs_beneath_with_struct_file_proto;
 	default:
 		return NULL;
 	}

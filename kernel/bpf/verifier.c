@@ -246,6 +246,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_PACKET]		= "pkt",
 	[PTR_TO_PACKET_END]	= "pkt_end",
 	[PTR_TO_STRUCT_FILE]	= "struct_file",
+	[CONST_PTR_TO_LANDLOCK_HANDLE_FS] = "landlock_handle_fs",
 };
 
 static void print_verifier_state(struct verifier_state *state)
@@ -557,6 +558,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case FRAME_PTR:
 	case CONST_PTR_TO_MAP:
 	case PTR_TO_STRUCT_FILE:
+	case CONST_PTR_TO_LANDLOCK_HANDLE_FS:
 		return true;
 	default:
 		return false;
@@ -976,6 +978,10 @@ static int check_func_arg(struct verifier_env *env, u32 regno,
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_STRUCT_FILE) {
 		expected_type = PTR_TO_STRUCT_FILE;
+		if (type != expected_type)
+			goto err_type;
+	} else if (arg_type == ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS) {
+		expected_type = CONST_PTR_TO_LANDLOCK_HANDLE_FS;
 		if (type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_STACK ||
@@ -1801,6 +1807,8 @@ static struct bpf_map *ld_imm64_to_map_ptr(struct bpf_insn *insn)
 static inline enum bpf_reg_type bpf_reg_type_from_map(struct bpf_map *map)
 {
 	switch (map->map_array_type) {
+	case BPF_MAP_ARRAY_TYPE_LANDLOCK_FS:
+		return CONST_PTR_TO_LANDLOCK_HANDLE_FS;
 	case BPF_MAP_ARRAY_TYPE_UNSPEC:
 	default:
 		return CONST_PTR_TO_MAP;

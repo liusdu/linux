@@ -92,10 +92,20 @@ enum bpf_map_type {
 
 enum bpf_map_array_type {
 	BPF_MAP_ARRAY_TYPE_UNSPEC,
+	BPF_MAP_ARRAY_TYPE_LANDLOCK_FS,
 };
 
 enum bpf_map_handle_type {
 	BPF_MAP_HANDLE_TYPE_UNSPEC,
+	BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD,
+	/* BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB, */
+};
+
+enum bpf_map_array_op {
+	BPF_MAP_ARRAY_OP_UNSPEC,
+	BPF_MAP_ARRAY_OP_OR,
+	BPF_MAP_ARRAY_OP_AND,
+	BPF_MAP_ARRAY_OP_XOR,
 };
 
 enum bpf_prog_type {
@@ -434,6 +444,34 @@ enum bpf_func_id {
 	 */
 	BPF_FUNC_skb_change_tail,
 
+	/**
+	 * bpf_landlock_cmp_fs_prop_with_struct_file(prop, map, map_op, file)
+	 * Compare file system handles with a struct file
+	 *
+	 * @prop: properties to check against (e.g. LANDLOCK_FLAG_FS_DENTRY)
+	 * @map: handles to compare against
+	 * @map_op: which elements of the map to use (e.g. BPF_MAP_ARRAY_OP_OR)
+	 * @file: struct file address to compare with (taken from the context)
+	 *
+	 * Return: 0 if the file match the handles, 1 otherwise, or a negative
+	 * value if an error occurred.
+	 */
+	BPF_FUNC_landlock_cmp_fs_prop_with_struct_file,
+
+	/**
+	 * bpf_landlock_cmp_fs_beneath_with_struct_file(opt, map, map_op, file)
+	 * Check if a struct file is a leaf of file system handles
+	 *
+	 * @opt: check options (e.g. LANDLOCK_FLAG_OPT_REVERSE)
+	 * @map: handles to compare against
+	 * @map_op: which elements of the map to use (e.g. BPF_MAP_ARRAY_OP_OR)
+	 * @file: struct file address to compare with (taken from the context)
+	 *
+	 * Return: 0 if the file is the same or beneath the handles,
+	 * 1 otherwise, or a negative value if an error occurred.
+	 */
+	BPF_FUNC_landlock_cmp_fs_beneath_with_struct_file,
+
 	__BPF_FUNC_MAX_ID,
 };
 
@@ -545,6 +583,17 @@ enum landlock_hook_id {
 
 /* context of function access flags */
 #define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 0) - 1)
+
+/* Handle check flags */
+#define LANDLOCK_FLAG_FS_DENTRY		(1 << 0)
+#define LANDLOCK_FLAG_FS_INODE		(1 << 1)
+#define LANDLOCK_FLAG_FS_DEVICE		(1 << 2)
+#define LANDLOCK_FLAG_FS_MOUNT		(1 << 3)
+#define _LANDLOCK_FLAG_FS_MASK		((1ULL << 4) - 1)
+
+/* Handle option flags */
+#define LANDLOCK_FLAG_OPT_REVERSE	(1<<0)
+#define _LANDLOCK_FLAG_OPT_MASK		((1ULL << 1) - 1)
 
 /* Map handle entry */
 struct landlock_handle {

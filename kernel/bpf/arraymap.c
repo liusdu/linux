@@ -21,6 +21,8 @@
 
 #ifdef CONFIG_SECURITY_LANDLOCK
 #include <asm/resource.h> /* RLIMIT_NOFILE */
+#include <linux/mount.h> /* struct vfsmount, MNT_INTERNAL */
+#include <linux/path.h> /* path_get(), path_put() */
 #include <linux/sched.h> /* rlimit() */
 #endif /* CONFIG_SECURITY_LANDLOCK */
 
@@ -603,6 +605,9 @@ static void landlock_put_handle(struct map_landlock_handle *handle)
 	enum bpf_map_handle_type handle_type = handle->type;
 
 	switch (handle_type) {
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+		path_put(&handle->path);
+		break;
 	case BPF_MAP_HANDLE_TYPE_UNSPEC:
 	default:
 		WARN_ON(1);
@@ -628,6 +633,8 @@ static enum bpf_map_array_type landlock_get_array_type(
 		enum bpf_map_handle_type handle_type)
 {
 	switch (handle_type) {
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+		return BPF_MAP_ARRAY_TYPE_LANDLOCK_FS;
 	case BPF_MAP_HANDLE_TYPE_UNSPEC:
 	default:
 		return -EINVAL;
@@ -650,8 +657,22 @@ static inline long landlock_store_handle(struct map_landlock_handle *dst,
 		struct landlock_handle *handle)
 {
 	enum bpf_map_handle_type handle_type = handle->type;
+	struct file *handle_file;
+
+	/* access control already done for the FD */
 
 	switch (handle_type) {
+	case BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD:
+		FGET_OR_RET(handle_file, handle->fd);
+		/* check if the FD is tied to a user mount point */
+		if (unlikely(handle_file->f_path.mnt->mnt_flags & MNT_INTERNAL)) {
+			fput(handle_file);
+			return -EINVAL;
+		}
+		path_get(&handle_file->f_path);
+		dst->path = handle_file->f_path;
+		fput(handle_file);
+		break;
 	case BPF_MAP_HANDLE_TYPE_UNSPEC:
 	default:
 		WARN_ON(1);
