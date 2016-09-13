@@ -429,7 +429,12 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	 * the usage counts on the error path calling free_task.
 	 */
 	tsk->seccomp.filter = NULL;
-#endif
+#ifdef CONFIG_SECURITY_LANDLOCK
+	tsk->seccomp.thread_filter = NULL;
+	tsk->seccomp.landlock_ret = NULL;
+	tsk->seccomp.landlock_hooks = NULL;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+#endif /* CONFIG_SECCOMP */
 
 	setup_thread_stack(tsk, orig);
 	clear_user_return_notifier(tsk);
@@ -1284,7 +1289,7 @@ static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 	return 0;
 }
 
-static void copy_seccomp(struct task_struct *p)
+static int copy_seccomp(struct task_struct *p)
 {
 #ifdef CONFIG_SECCOMP
 	/*
@@ -1297,7 +1302,14 @@ static void copy_seccomp(struct task_struct *p)
 
 	/* Ref-count the new filter user, and assign it. */
 	get_seccomp_filter(current);
-	p->seccomp = current->seccomp;
+	p->seccomp.mode = current->seccomp.mode;
+	p->seccomp.filter = current->seccomp.filter;
+#if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_SECURITY_LANDLOCK)
+	/* No copy for thread_filter nor landlock_ret. */
+	p->seccomp.landlock_hooks = current->seccomp.landlock_hooks;
+	if (p->seccomp.landlock_hooks)
+		atomic_inc(&p->seccomp.landlock_hooks->usage);
+#endif /* CONFIG_SECCOMP_FILTER && CONFIG_SECURITY_LANDLOCK */
 
 	/*
 	 * Explicitly enable no_new_privs here in case it got set
@@ -1315,6 +1327,7 @@ static void copy_seccomp(struct task_struct *p)
 	if (p->seccomp.mode != SECCOMP_MODE_DISABLED)
 		set_tsk_thread_flag(p, TIF_SECCOMP);
 #endif
+	return 0;
 }
 
 SYSCALL_DEFINE1(set_tid_address, int __user *, tidptr)
@@ -1674,7 +1687,9 @@ static __latent_entropy struct task_struct *copy_process(
 	 * Copy seccomp details explicitly here, in case they were changed
 	 * before holding sighand lock.
 	 */
-	copy_seccomp(p);
+	retval = copy_seccomp(p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
 
 	/*
 	 * Process group and session signals need to be delivered to just the

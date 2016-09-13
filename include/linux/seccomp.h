@@ -10,6 +10,10 @@
 #include <linux/thread_info.h>
 #include <asm/seccomp.h>
 
+#if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_SECURITY_LANDLOCK)
+#include <linux/landlock.h>
+#endif /* CONFIG_SECCOMP_FILTER && CONFIG_SECURITY_LANDLOCK */
+
 /**
  * struct seccomp_filter - container for seccomp BPF programs
  *
@@ -19,6 +23,7 @@
  *         is only needed for handling filters shared across tasks.
  * @prev: points to a previously installed, or inherited, filter
  * @prog: the BPF program to evaluate
+ * @thread_prev: points to filters installed by the same thread
  *
  * seccomp_filter objects are organized in a tree linked via the @prev
  * pointer.  For any task, it appears to be a singly-linked list starting
@@ -34,6 +39,9 @@ struct seccomp_filter {
 	atomic_t usage;
 	struct seccomp_filter *prev;
 	struct bpf_prog *prog;
+#if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_SECURITY_LANDLOCK)
+	struct seccomp_filter *thread_prev;
+#endif /* CONFIG_SECCOMP_FILTER && CONFIG_SECURITY_LANDLOCK */
 };
 
 /**
@@ -43,6 +51,11 @@ struct seccomp_filter {
  *         system calls available to a process.
  * @filter: must always point to a valid seccomp-filter or NULL as it is
  *          accessed without locking during system call entry.
+ * @thread_filter: list of filters allowed to trigger an associated Landlock
+ *                 hook via a RET_LANDLOCK; must walk through thread_prev.
+ * @landlock_ret: one unique private list per thread storing the RET_LANDLOCK
+ *                values of all filters.
+ * @landlock_hooks: contains an array of Landlock programs.
  *
  *          @filter must only be accessed from the context of current as there
  *          is no read locking.
@@ -50,6 +63,12 @@ struct seccomp_filter {
 struct seccomp {
 	int mode;
 	struct seccomp_filter *filter;
+
+#if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_SECURITY_LANDLOCK)
+	struct seccomp_filter *thread_filter;
+	struct landlock_seccomp_ret *landlock_ret;
+	struct landlock_hooks *landlock_hooks;
+#endif /* CONFIG_SECCOMP_FILTER && CONFIG_SECURITY_LANDLOCK */
 };
 
 #ifdef CONFIG_HAVE_ARCH_SECCOMP_FILTER
@@ -103,9 +122,16 @@ static inline int seccomp_mode(struct seccomp *s)
 
 #ifdef CONFIG_SECCOMP_FILTER
 extern void put_seccomp(struct task_struct *tsk);
+extern void put_seccomp_filter(struct seccomp_filter *filter);
 extern void get_seccomp_filter(struct task_struct *tsk);
+
 #else  /* CONFIG_SECCOMP_FILTER */
 static inline void put_seccomp(struct task_struct *tsk)
+{
+	return;
+}
+
+static void put_seccomp_filter(struct seccomp_filter *filter)
 {
 	return;
 }

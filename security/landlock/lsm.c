@@ -14,10 +14,13 @@
 #include <linux/err.h> /* MAX_ERRNO */
 #include <linux/filter.h> /* struct bpf_prog, BPF_PROG_RUN() */
 #include <linux/kernel.h> /* FIELD_SIZEOF() */
+#include <linux/landlock.h>
 #include <linux/lsm_hooks.h>
+#include <linux/seccomp.h> /* struct seccomp_* */
 #include <linux/types.h> /* uintptr_t */
 
 #include "checker_fs.h"
+#include "common.h"
 
 #define LANDLOCK_MAP0(m, ...)
 #define LANDLOCK_MAP1(m, d, t, a) m(d, t, a)
@@ -62,10 +65,99 @@
 
 #define LANDLOCK_HOOK_INIT(NAME) LSM_HOOK_INIT(NAME, landlock_hook_##NAME)
 
+/**
+ * landlock_run_prog_for_syscall - run Landlock program for a syscall
+ *
+ * @hook_idx: hook index in the rules array
+ * @ctx: non-NULL eBPF context; the "origin" field will be updated
+ * @hooks: Landlock hooks pointer
+ */
+static u32 landlock_run_prog_for_syscall(u32 hook_idx,
+		struct landlock_data *ctx, struct landlock_hooks *hooks)
+{
+	struct landlock_rule *rule;
+	u32 cur_ret = 0, ret = 0;
+
+	if (!hooks)
+		return 0;
+
+	for (rule = hooks->rules[hook_idx]; rule && !ret; rule = rule->prev) {
+		if (!(rule->prog->subtype.landlock_hook.origin & ctx->origin))
+			continue;
+		cur_ret = BPF_PROG_RUN(rule->prog, (void *)ctx);
+		if (cur_ret > MAX_ERRNO)
+			ret = MAX_ERRNO;
+		else
+			ret = cur_ret;
+	}
+	return ret;
+}
 
 static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 {
-	return 0;
+	u32 cur_ret = 0, ret = 0;
+#ifdef CONFIG_SECCOMP_FILTER
+	struct landlock_seccomp_ret *lr;
+#endif /* CONFIG_SECCOMP_FILTER */
+	struct landlock_rule *rule;
+	u32 hook_idx = get_index(hook_id);
+
+	struct landlock_data ctx = {
+		.hook = hook_id,
+		.cookie = 0,
+		.args[0] = args[0],
+		.args[1] = args[1],
+		.args[2] = args[2],
+		.args[3] = args[3],
+		.args[4] = args[4],
+		.args[5] = args[5],
+	};
+
+	/* TODO: use lockless_dereference()? */
+
+#ifdef CONFIG_SECCOMP_FILTER
+	/* seccomp triggers and landlock_ret cleanup */
+	ctx.origin = LANDLOCK_FLAG_ORIGIN_SECCOMP;
+	for (lr = current->seccomp.landlock_ret; lr; lr = lr->prev) {
+		if (!lr->triggered)
+			continue;
+		lr->triggered = false;
+		/* clean up all seccomp results */
+		if (ret)
+			continue;
+		ctx.cookie = lr->cookie;
+		for (rule = current->seccomp.landlock_hooks->rules[hook_idx];
+				rule && !ret; rule = rule->prev) {
+			struct seccomp_filter *filter;
+
+			if (!(rule->prog->subtype.landlock_hook.origin &
+						ctx.origin))
+				continue;
+			for (filter = rule->thread_filter; filter;
+					filter = filter->thread_prev) {
+				if (rule->thread_filter != lr->filter)
+					continue;
+				cur_ret = BPF_PROG_RUN(rule->prog, (void *)&ctx);
+				if (cur_ret > MAX_ERRNO)
+					ret = MAX_ERRNO;
+				else
+					ret = cur_ret;
+				/* walk to the next program */
+				break;
+			}
+		}
+	}
+	if (ret)
+		return -ret;
+	ctx.cookie = 0;
+
+	/* syscall trigger */
+	ctx.origin = LANDLOCK_FLAG_ORIGIN_SYSCALL;
+	ret = landlock_run_prog_for_syscall(hook_idx, &ctx,
+			current->seccomp.landlock_hooks);
+#endif /* CONFIG_SECCOMP_FILTER */
+
+	return -ret;
 }
 
 static const struct bpf_func_proto *bpf_landlock_func_proto(
@@ -152,7 +244,7 @@ static struct security_hook_list landlock_hooks[] = {
 
 void __init landlock_add_hooks(void)
 {
-	pr_info("landlock: Becoming ready for sandboxing\n");
+	pr_info("landlock: Becoming ready to sandbox with seccomp\n");
 	security_add_hooks(landlock_hooks, ARRAY_SIZE(landlock_hooks));
 }
 
