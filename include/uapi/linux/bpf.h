@@ -108,6 +108,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_XDP,
 	BPF_PROG_TYPE_PERF_EVENT,
 	BPF_PROG_TYPE_CGROUP_SOCKET,
+	BPF_PROG_TYPE_LANDLOCK,
 };
 
 enum bpf_attach_type {
@@ -528,6 +529,23 @@ struct xdp_md {
 	__u32 data_end;
 };
 
+/* LSM hooks */
+enum landlock_hook_id {
+	LANDLOCK_HOOK_UNSPEC,
+	LANDLOCK_HOOK_FILE_OPEN,
+	LANDLOCK_HOOK_FILE_PERMISSION,
+	LANDLOCK_HOOK_MMAP_FILE,
+};
+#define _LANDLOCK_HOOK_LAST LANDLOCK_HOOK_MMAP_FILE
+
+/* Trigger type */
+#define LANDLOCK_FLAG_ORIGIN_SYSCALL	(1 << 0)
+#define LANDLOCK_FLAG_ORIGIN_SECCOMP	(1 << 1)
+#define _LANDLOCK_FLAG_ORIGIN_MASK	((1 << 2) - 1)
+
+/* context of function access flags */
+#define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 0) - 1)
+
 /* Map handle entry */
 struct landlock_handle {
 	__u32 type; /* enum bpf_map_handle_type */
@@ -536,5 +554,24 @@ struct landlock_handle {
 		__aligned_u64 glob;
 	};
 } __attribute__((aligned(8)));
+
+/**
+ * struct landlock_data
+ *
+ * @hook: LSM hook ID (e.g. BPF_PROG_TYPE_LANDLOCK_FILE_OPEN)
+ * @origin: bit indicating for which reason the program is running
+ * @cookie: value set by a seccomp-filter return value RET_LANDLOCK. This come
+ *          from a trusted seccomp-bpf program: the same process that loaded
+ *          this Landlock hook program.
+ * @args: LSM hook arguments, see include/linux/lsm_hooks.h for there
+ *        description and the LANDLOCK_HOOK* definitions from
+ *        security/landlock/lsm.c for their types.
+ */
+struct landlock_data {
+	__u32 hook; /* enum landlock_hook_id */
+	__u16 origin; /* LANDLOCK_FLAG_ORIGIN_* */
+	__u16 cookie; /* seccomp RET_LANDLOCK */
+	__u64 args[6];
+};
 
 #endif /* _UAPI__LINUX_BPF_H__ */
