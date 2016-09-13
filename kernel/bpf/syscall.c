@@ -833,15 +833,15 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 	struct cgroup *cgrp;
 	int result;
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
-
 	if (CHECK_ATTR(BPF_PROG_ATTACH))
 		return -EINVAL;
 
 	switch (attr->attach_type) {
 	case BPF_CGROUP_INET_INGRESS:
 	case BPF_CGROUP_INET_EGRESS:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+
 		prog = bpf_prog_get_type(attr->attach_bpf_fd,
 					 BPF_PROG_TYPE_CGROUP_SOCKET);
 		break;
@@ -872,15 +872,15 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	struct cgroup *cgrp;
 	int result = 0;
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
-
 	if (CHECK_ATTR(BPF_PROG_DETACH))
 		return -EINVAL;
 
 	switch (attr->attach_type) {
 	case BPF_CGROUP_INET_INGRESS:
 	case BPF_CGROUP_INET_EGRESS:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+
 		cgrp = cgroup_get_from_fd(attr->target_fd);
 		if (IS_ERR(cgrp))
 			return PTR_ERR(cgrp);
