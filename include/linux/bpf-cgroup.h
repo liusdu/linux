@@ -14,14 +14,18 @@ struct sk_buff;
 extern struct static_key_false cgroup_bpf_enabled_key;
 #define cgroup_bpf_enabled static_branch_unlikely(&cgroup_bpf_enabled_key)
 
+union bpf_object {
+	struct bpf_prog *prog;
+};
+
 struct cgroup_bpf {
 	/*
 	 * Store two sets of bpf_prog pointers, one for programs that are
 	 * pinned directly to this cgroup, and one for those that are effective
 	 * when this cgroup is accessed.
 	 */
-	struct bpf_prog *prog[MAX_BPF_ATTACH_TYPE];
-	struct bpf_prog *effective[MAX_BPF_ATTACH_TYPE];
+	union bpf_object pinned[MAX_BPF_ATTACH_TYPE];
+	union bpf_object effective[MAX_BPF_ATTACH_TYPE];
 };
 
 void cgroup_bpf_put(struct cgroup *cgrp);

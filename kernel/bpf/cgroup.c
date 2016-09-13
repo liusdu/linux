@@ -20,18 +20,18 @@ DEFINE_STATIC_KEY_FALSE(cgroup_bpf_enabled_key);
 EXPORT_SYMBOL(cgroup_bpf_enabled_key);
 
 /**
- * cgroup_bpf_put() - put references of all bpf programs
+ * cgroup_bpf_put() - put references of all bpf objects
  * @cgrp: the cgroup to modify
  */
 void cgroup_bpf_put(struct cgroup *cgrp)
 {
 	unsigned int type;
 
-	for (type = 0; type < ARRAY_SIZE(cgrp->bpf.prog); type++) {
-		struct bpf_prog *prog = cgrp->bpf.prog[type];
+	for (type = 0; type < ARRAY_SIZE(cgrp->bpf.pinned); type++) {
+		union bpf_object pinned = cgrp->bpf.pinned[type];
 
-		if (prog) {
-			bpf_prog_put(prog);
+		if (pinned.prog) {
+			bpf_prog_put(pinned.prog);
 			static_branch_dec(&cgroup_bpf_enabled_key);
 		}
 	}
@@ -47,11 +47,12 @@ void cgroup_bpf_inherit(struct cgroup *cgrp, struct cgroup *parent)
 	unsigned int type;
 
 	for (type = 0; type < ARRAY_SIZE(cgrp->bpf.effective); type++) {
-		struct bpf_prog *e;
+		union bpf_object e;
 
-		e = rcu_dereference_protected(parent->bpf.effective[type],
-					      lockdep_is_held(&cgroup_mutex));
-		rcu_assign_pointer(cgrp->bpf.effective[type], e);
+		e.prog = rcu_dereference_protected(
+				parent->bpf.effective[type].prog,
+				lockdep_is_held(&cgroup_mutex));
+		rcu_assign_pointer(cgrp->bpf.effective[type].prog, e.prog);
 	}
 }
 
@@ -87,32 +88,33 @@ void __cgroup_bpf_update(struct cgroup *cgrp,
 			 struct bpf_prog *prog,
 			 enum bpf_attach_type type)
 {
-	struct bpf_prog *old_prog, *effective;
+	union bpf_object obj, old_pinned, effective;
 	struct cgroup_subsys_state *pos;
 
-	old_prog = xchg(cgrp->bpf.prog + type, prog);
+	obj.prog = prog;
+	old_pinned = xchg(cgrp->bpf.pinned + type, obj);
 
-	effective = (!prog && parent) ?
-		rcu_dereference_protected(parent->bpf.effective[type],
+	effective.prog = (!obj.prog && parent) ?
+		rcu_dereference_protected(parent->bpf.effective[type].prog,
 					  lockdep_is_held(&cgroup_mutex)) :
-		prog;
+		obj.prog;
 
 	css_for_each_descendant_pre(pos, &cgrp->self) {
 		struct cgroup *desc = container_of(pos, struct cgroup, self);
 
 		/* skip the subtree if the descendant has its own program */
-		if (desc->bpf.prog[type] && desc != cgrp)
+		if (desc->bpf.pinned[type].prog && desc != cgrp)
 			pos = css_rightmost_descendant(pos);
 		else
-			rcu_assign_pointer(desc->bpf.effective[type],
-					   effective);
+			rcu_assign_pointer(desc->bpf.effective[type].prog,
+					   effective.prog);
 	}
 
-	if (prog)
+	if (obj.prog)
 		static_branch_inc(&cgroup_bpf_enabled_key);
 
-	if (old_prog) {
-		bpf_prog_put(old_prog);
+	if (old_pinned.prog) {
+		bpf_prog_put(old_pinned.prog);
 		static_branch_dec(&cgroup_bpf_enabled_key);
 	}
 }
@@ -151,7 +153,7 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 
 	rcu_read_lock();
 
-	prog = rcu_dereference(cgrp->bpf.effective[type]);
+	prog = rcu_dereference(cgrp->bpf.effective[type].prog);
 	if (prog) {
 		unsigned int offset = skb->data - skb_mac_header(skb);
 
