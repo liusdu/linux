@@ -17,6 +17,7 @@
 #include <linux/kernel.h> /* FIELD_SIZEOF() */
 #include <linux/landlock.h>
 #include <linux/lsm_hooks.h>
+#include <linux/preempt.h> /* in_interrupt() */
 #include <linux/seccomp.h> /* struct seccomp_* */
 #include <linux/types.h> /* uintptr_t */
 
@@ -109,6 +110,7 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 #endif /* CONFIG_CGROUP_BPF */
 	struct landlock_rule *rule;
 	u32 hook_idx = get_index(hook_id);
+	u16 current_call;
 
 	struct landlock_data ctx = {
 		.hook = hook_id,
@@ -127,6 +129,16 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 	 * Run the seccomp-based triggers before the cgroup-based triggers to
 	 * prioritize fine-grained policies (i.e. per thread), and return early.
 	 */
+
+	if (unlikely(in_interrupt())) {
+		current_call = LANDLOCK_FLAG_ORIGIN_INTERRUPT;
+#ifdef CONFIG_SECCOMP_FILTER
+		/* bypass landlock_ret evaluation */
+		goto seccomp_int;
+#endif /* CONFIG_SECCOMP_FILTER */
+	} else {
+		current_call = LANDLOCK_FLAG_ORIGIN_SYSCALL;
+	}
 
 #ifdef CONFIG_SECCOMP_FILTER
 	/* seccomp triggers and landlock_ret cleanup */
@@ -164,8 +176,9 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 		return -ret;
 	ctx.cookie = 0;
 
+seccomp_int:
 	/* syscall trigger */
-	ctx.origin = LANDLOCK_FLAG_ORIGIN_SYSCALL;
+	ctx.origin = current_call;
 	ret = landlock_run_prog_for_syscall(hook_idx, &ctx,
 			current->seccomp.landlock_hooks);
 	if (ret)
@@ -175,7 +188,7 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 #ifdef CONFIG_CGROUP_BPF
 	/* syscall trigger */
 	if (cgroup_bpf_enabled) {
-		ctx.origin = LANDLOCK_FLAG_ORIGIN_SYSCALL;
+		ctx.origin = current_call;
 		/* get the default cgroup associated with the current thread */
 		cgrp = task_css_set(current)->dfl_cgrp;
 		ret = landlock_run_prog_for_syscall(hook_idx, &ctx,
