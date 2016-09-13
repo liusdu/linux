@@ -127,6 +127,14 @@ enum bpf_attach_type {
 
 #define BPF_F_NO_PREALLOC	(1U << 0)
 
+union bpf_prog_subtype {
+	struct {
+		__u32		id; /* enum landlock_hook_id */
+		__u16		origin; /* LANDLOCK_FLAG_ORIGIN_* */
+		__aligned_u64	access; /* LANDLOCK_FLAG_ACCESS_* */
+	} landlock_hook;
+} __attribute__((aligned(8)));
+
 union bpf_attr {
 	struct { /* anonymous struct used by BPF_MAP_CREATE command */
 		__u32	map_type;	/* one of enum bpf_map_type */
@@ -155,6 +163,7 @@ union bpf_attr {
 		__u32		log_size;	/* size of user buffer */
 		__aligned_u64	log_buf;	/* user supplied buffer */
 		__u32		kern_version;	/* checked when prog_type=kprobe */
+		union bpf_prog_subtype prog_subtype;	/* checked when prog_type=landlock */
 	};
 
 	struct { /* anonymous struct used by BPF_OBJ_* commands */
