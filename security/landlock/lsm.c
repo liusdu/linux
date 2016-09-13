@@ -281,6 +281,7 @@ static bool __is_valid_access(int off, int size, enum bpf_access_type type,
 		break;
 	case offsetof(struct landlock_data, args[0]) ...
 			offsetof(struct landlock_data, args[5]):
+	case offsetof(struct landlock_data, opt_skb):
 		expected_size = sizeof(__u64);
 		break;
 	default:
@@ -298,6 +299,13 @@ static bool __is_valid_access(int off, int size, enum bpf_access_type type,
 		*reg_type = arg_types[arg_nb];
 		if (*reg_type == NOT_INIT)
 			return false;
+		break;
+	case offsetof(struct landlock_data, opt_skb):
+		if (!(prog_subtype->landlock_hook.access &
+				(LANDLOCK_FLAG_ACCESS_SKB_READ |
+				 LANDLOCK_FLAG_ACCESS_SKB_WRITE)))
+			return false;
+		*reg_type = PTR_TO_STRUCT_SKB;
 		break;
 	}
 
@@ -400,6 +408,24 @@ static inline bool bpf_landlock_is_valid_subtype(
 		return false;
 	if (prog_subtype->landlock_hook.access & LANDLOCK_FLAG_ACCESS_DEBUG &&
 			!capable(CAP_SYS_ADMIN))
+		return false;
+	/*
+	 * Capability checks must be enforced for every landlocked process.
+	 * To support user namespaces/capabilities, we must then check the
+	 * namespaces of a task before putting it in a landlocked cgroup.
+	 * This could be implemented in the future.
+	 */
+	if (prog_subtype->landlock_hook.access & LANDLOCK_FLAG_ACCESS_SKB_READ &&
+			!capable(CAP_NET_ADMIN))
+		return false;
+	/*
+	 * It is interesting to differentiate read and write access to be able
+	 * to securely delegate some work to unprivileged (and potentially
+	 * compromised/untrusted) processes. This different type of access can
+	 * be checked for function calls or context accesses.
+	 */
+	if (prog_subtype->landlock_hook.access & LANDLOCK_FLAG_ACCESS_SKB_WRITE &&
+			!capable(CAP_NET_ADMIN))
 		return false;
 
 	return true;

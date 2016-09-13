@@ -586,7 +586,9 @@ enum landlock_hook_id {
 /* context of function access flags */
 #define LANDLOCK_FLAG_ACCESS_UPDATE	(1 << 0)
 #define LANDLOCK_FLAG_ACCESS_DEBUG	(1 << 1)
-#define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 2) - 1)
+#define LANDLOCK_FLAG_ACCESS_SKB_READ	(1 << 2)
+#define LANDLOCK_FLAG_ACCESS_SKB_WRITE	(1 << 3)
+#define _LANDLOCK_FLAG_ACCESS_MASK	((1ULL << 4) - 1)
 
 /* Handle check flags */
 #define LANDLOCK_FLAG_FS_DENTRY		(1 << 0)
@@ -619,12 +621,15 @@ struct landlock_handle {
  * @args: LSM hook arguments, see include/linux/lsm_hooks.h for there
  *        description and the LANDLOCK_HOOK* definitions from
  *        security/landlock/lsm.c for their types.
+ * @opt_skb: optional skb pointer, accessible with the
+ *           LANDLOCK_FLAG_ACCESS_SKB_* flags for network-related hooks.
  */
 struct landlock_data {
 	__u32 hook; /* enum landlock_hook_id */
 	__u16 origin; /* LANDLOCK_FLAG_ORIGIN_* */
 	__u16 cookie; /* seccomp RET_LANDLOCK */
 	__u64 args[6];
+	__u64 opt_skb;
 };
 
 #endif /* _UAPI__LINUX_BPF_H__ */

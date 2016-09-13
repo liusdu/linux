@@ -247,6 +247,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_PACKET_END]	= "pkt_end",
 	[PTR_TO_STRUCT_FILE]	= "struct_file",
 	[CONST_PTR_TO_LANDLOCK_HANDLE_FS] = "landlock_handle_fs",
+	[PTR_TO_STRUCT_SKB]	= "struct_skb",
 };
 
 static void print_verifier_state(struct verifier_state *state)
@@ -559,6 +560,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case CONST_PTR_TO_MAP:
 	case PTR_TO_STRUCT_FILE:
 	case CONST_PTR_TO_LANDLOCK_HANDLE_FS:
+	case PTR_TO_STRUCT_SKB:
 		return true;
 	default:
 		return false;
@@ -982,6 +984,10 @@ static int check_func_arg(struct verifier_env *env, u32 regno,
 			goto err_type;
 	} else if (arg_type == ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS) {
 		expected_type = CONST_PTR_TO_LANDLOCK_HANDLE_FS;
+		if (type != expected_type)
+			goto err_type;
+	} else if (arg_type == ARG_PTR_TO_STRUCT_SKB) {
+		expected_type = PTR_TO_STRUCT_SKB;
 		if (type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_STACK ||

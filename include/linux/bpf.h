@@ -88,6 +88,7 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_STRUCT_FILE,		/* pointer to struct file */
 	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS handle */
+	ARG_PTR_TO_STRUCT_SKB,		/* pointer to struct skb */
 };
 
 /* type of values returned from helper functions */
@@ -150,6 +151,7 @@ enum bpf_reg_type {
 	/* Landlock */
 	PTR_TO_STRUCT_FILE,
 	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
+	PTR_TO_STRUCT_SKB,
 };
 
 struct bpf_prog;
