@@ -17,6 +17,7 @@
 #include <linux/license.h>
 #include <linux/filter.h>
 #include <linux/version.h>
+#include <linux/fs.h>
 
 DEFINE_PER_CPU(int, bpf_prog_active);
 
@@ -863,7 +864,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 	if (IS_ERR(prog))
 		return PTR_ERR(prog);
 
-	cgrp = cgroup_get_from_fd(attr->target_fd);
+	cgrp = cgroup_get_from_fd(attr->target_fd, MAY_WRITE);
 	if (IS_ERR(cgrp)) {
 		bpf_prog_put(prog);
 		return PTR_ERR(cgrp);
@@ -891,10 +892,9 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
-		cgrp = cgroup_get_from_fd(attr->target_fd);
+		cgrp = cgroup_get_from_fd(attr->target_fd, MAY_WRITE);
 		if (IS_ERR(cgrp))
 			return PTR_ERR(cgrp);
-
 		result = cgroup_bpf_update(cgrp, NULL, attr->attach_type);
 		cgroup_put(cgrp);
 		break;

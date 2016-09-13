@@ -6241,17 +6241,20 @@ EXPORT_SYMBOL_GPL(cgroup_get_from_path);
 /**
  * cgroup_get_from_fd - get a cgroup pointer from a fd
  * @fd: fd obtained by open(cgroup2_dir)
+ * @access_mask: contains the permission mask
  *
  * Find the cgroup from a fd which should be obtained
  * by opening a cgroup directory.  Returns a pointer to the
  * cgroup on success. ERR_PTR is returned if the cgroup
  * cannot be found.
  */
-struct cgroup *cgroup_get_from_fd(int fd)
+struct cgroup *cgroup_get_from_fd(int fd, int access_mask)
 {
 	struct cgroup_subsys_state *css;
 	struct cgroup *cgrp;
 	struct file *f;
+	struct inode *inode;
+	int ret;
 
 	f = fget_raw(fd);
 	if (!f)
@@ -6266,6 +6269,17 @@ struct cgroup *cgroup_get_from_fd(int fd)
 	if (!cgroup_on_dfl(cgrp)) {
 		cgroup_put(cgrp);
 		return ERR_PTR(-EBADF);
+	}
+
+	ret = -ENOMEM;
+	inode = kernfs_get_inode(f->f_path.dentry->d_sb, cgrp->procs_file.kn);
+	if (inode) {
+		ret = inode_permission(inode, access_mask);
+		iput(inode);
+	}
+	if (ret) {
+		cgroup_put(cgrp);
+		return ERR_PTR(ret);
 	}
 
 	return cgrp;
