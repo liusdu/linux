@@ -846,6 +846,16 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 					 BPF_PROG_TYPE_CGROUP_SOCKET);
 		break;
 
+	case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+		if (!capable(CAP_SYS_ADMIN))
+			return -EPERM;
+
+		prog = bpf_prog_get_type(attr->attach_bpf_fd,
+				BPF_PROG_TYPE_LANDLOCK);
+		break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 	default:
 		return -EINVAL;
 	}
@@ -889,6 +899,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 		cgroup_put(cgrp);
 		break;
 
+	case BPF_CGROUP_LANDLOCK:
 	default:
 		return -EINVAL;
 	}

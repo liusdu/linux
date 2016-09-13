@@ -19,6 +19,9 @@
 #include <linux/seccomp.h> /* struct seccomp_filter */
 #endif /* CONFIG_SECCOMP_FILTER */
 
+#ifdef CONFIG_CGROUP_BPF
+#include <linux/cgroup-defs.h> /* struct cgroup */
+#endif /* CONFIG_CGROUP_BPF */
 
 #ifdef CONFIG_SECCOMP_FILTER
 struct landlock_seccomp_ret {
@@ -65,6 +68,7 @@ struct landlock_hooks {
 
 
 struct landlock_hooks *new_landlock_hooks(void);
+void get_landlock_hooks(struct landlock_hooks *hooks);
 void put_landlock_hooks(struct landlock_hooks *hooks);
 
 #ifdef CONFIG_SECCOMP_FILTER
@@ -72,6 +76,11 @@ void put_landlock_ret(struct landlock_seccomp_ret *landlock_ret);
 int landlock_seccomp_set_hook(unsigned int flags,
 		const char __user *user_bpf_fd);
 #endif /* CONFIG_SECCOMP_FILTER */
+
+#ifdef CONFIG_CGROUP_BPF
+struct landlock_hooks *landlock_cgroup_set_hook(struct cgroup *cgrp,
+		struct bpf_prog *prog);
+#endif /* CONFIG_CGROUP_BPF */
 
 #endif /* CONFIG_SECURITY_LANDLOCK */
 #endif /* _LINUX_LANDLOCK_H */

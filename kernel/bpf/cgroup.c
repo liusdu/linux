@@ -15,6 +15,7 @@
 #include <linux/bpf.h>
 #include <linux/bpf-cgroup.h>
 #include <net/sock.h>
+#include <linux/landlock.h>
 
 DEFINE_STATIC_KEY_FALSE(cgroup_bpf_enabled_key);
 EXPORT_SYMBOL(cgroup_bpf_enabled_key);
@@ -31,7 +32,15 @@ void cgroup_bpf_put(struct cgroup *cgrp)
 		union bpf_object pinned = cgrp->bpf.pinned[type];
 
 		if (pinned.prog) {
-			bpf_prog_put(pinned.prog);
+			switch (type) {
+			case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+				put_landlock_hooks(pinned.hooks);
+				break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+			default:
+				bpf_prog_put(pinned.prog);
+			}
 			static_branch_dec(&cgroup_bpf_enabled_key);
 		}
 	}
@@ -53,6 +62,10 @@ void cgroup_bpf_inherit(struct cgroup *cgrp, struct cgroup *parent)
 				parent->bpf.effective[type].prog,
 				lockdep_is_held(&cgroup_mutex));
 		rcu_assign_pointer(cgrp->bpf.effective[type].prog, e.prog);
+#ifdef CONFIG_SECURITY_LANDLOCK
+		if (type == BPF_CGROUP_LANDLOCK)
+			get_landlock_hooks(e.hooks);
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	}
 }
 
@@ -91,7 +104,18 @@ int __cgroup_bpf_update(struct cgroup *cgrp,
 	union bpf_object obj, old_pinned, effective;
 	struct cgroup_subsys_state *pos;
 
-	obj.prog = prog;
+	switch (type) {
+	case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+		/* append hook */
+		obj.hooks = landlock_cgroup_set_hook(cgrp, prog);
+		if (IS_ERR(obj.hooks))
+			return PTR_ERR(obj.hooks);
+		break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+	default:
+		obj.prog = prog;
+	}
 	old_pinned = xchg(cgrp->bpf.pinned + type, obj);
 
 	effective.prog = (!obj.prog && parent) ?
@@ -114,7 +138,10 @@ int __cgroup_bpf_update(struct cgroup *cgrp,
 		static_branch_inc(&cgroup_bpf_enabled_key);
 
 	if (old_pinned.prog) {
-		bpf_prog_put(old_pinned.prog);
+#ifdef CONFIG_SECURITY_LANDLOCK
+		if (type != BPF_CGROUP_LANDLOCK)
+			bpf_prog_put(old_pinned.prog);
+#endif /* CONFIG_SECURITY_LANDLOCK */
 		static_branch_dec(&cgroup_bpf_enabled_key);
 	}
 	return 0;

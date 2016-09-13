@@ -9,6 +9,7 @@
  */
 
 #include <asm/current.h>
+#include <linux/bpf-cgroup.h> /* cgroup_bpf_enabled */
 #include <linux/bpf.h> /* enum bpf_reg_type, struct landlock_data */
 #include <linux/cred.h>
 #include <linux/err.h> /* MAX_ERRNO */
@@ -18,6 +19,10 @@
 #include <linux/lsm_hooks.h>
 #include <linux/seccomp.h> /* struct seccomp_* */
 #include <linux/types.h> /* uintptr_t */
+
+#ifdef CONFIG_CGROUP_BPF
+#include <linux/cgroup-defs.h> /* struct cgroup */
+#endif /* CONFIG_CGROUP_BPF */
 
 #include "checker_fs.h"
 #include "common.h"
@@ -99,6 +104,9 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 #ifdef CONFIG_SECCOMP_FILTER
 	struct landlock_seccomp_ret *lr;
 #endif /* CONFIG_SECCOMP_FILTER */
+#ifdef CONFIG_CGROUP_BPF
+	struct cgroup *cgrp;
+#endif /* CONFIG_CGROUP_BPF */
 	struct landlock_rule *rule;
 	u32 hook_idx = get_index(hook_id);
 
@@ -114,6 +122,11 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 	};
 
 	/* TODO: use lockless_dereference()? */
+
+	/*
+	 * Run the seccomp-based triggers before the cgroup-based triggers to
+	 * prioritize fine-grained policies (i.e. per thread), and return early.
+	 */
 
 #ifdef CONFIG_SECCOMP_FILTER
 	/* seccomp triggers and landlock_ret cleanup */
@@ -155,7 +168,20 @@ static int landlock_run_prog(enum landlock_hook_id hook_id, __u64 args[6])
 	ctx.origin = LANDLOCK_FLAG_ORIGIN_SYSCALL;
 	ret = landlock_run_prog_for_syscall(hook_idx, &ctx,
 			current->seccomp.landlock_hooks);
+	if (ret)
+		return -ret;
 #endif /* CONFIG_SECCOMP_FILTER */
+
+#ifdef CONFIG_CGROUP_BPF
+	/* syscall trigger */
+	if (cgroup_bpf_enabled) {
+		ctx.origin = LANDLOCK_FLAG_ORIGIN_SYSCALL;
+		/* get the default cgroup associated with the current thread */
+		cgrp = task_css_set(current)->dfl_cgrp;
+		ret = landlock_run_prog_for_syscall(hook_idx, &ctx,
+				cgrp->bpf.effective[BPF_CGROUP_LANDLOCK].hooks);
+	}
+#endif /* CONFIG_CGROUP_BPF */
 
 	return -ret;
 }
@@ -242,9 +268,21 @@ static struct security_hook_list landlock_hooks[] = {
 	LANDLOCK_HOOK_INIT(mmap_file),
 };
 
+#ifdef CONFIG_SECCOMP_FILTER
+#ifdef CONFIG_CGROUP_BPF
+#define LANDLOCK_MANAGERS "seccomp and cgroups"
+#else /* CONFIG_CGROUP_BPF */
+#define LANDLOCK_MANAGERS "seccomp"
+#endif /* CONFIG_CGROUP_BPF */
+#elif define(CONFIG_CGROUP_BPF)
+#define LANDLOCK_MANAGERS "cgroups"
+#else
+#error "Need CONFIG_SECCOMP_FILTER or CONFIG_CGROUP_BPF"
+#endif /* CONFIG_SECCOMP_FILTER */
+
 void __init landlock_add_hooks(void)
 {
-	pr_info("landlock: Becoming ready to sandbox with seccomp\n");
+	pr_info("landlock: Becoming ready to sandbox with " LANDLOCK_MANAGERS "\n");
 	security_add_hooks(landlock_hooks, ARRAY_SIZE(landlock_hooks));
 }
 

@@ -14,8 +14,15 @@ struct sk_buff;
 extern struct static_key_false cgroup_bpf_enabled_key;
 #define cgroup_bpf_enabled static_branch_unlikely(&cgroup_bpf_enabled_key)
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+struct landlock_hooks;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 union bpf_object {
 	struct bpf_prog *prog;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct landlock_hooks *hooks;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 };
 
 struct cgroup_bpf {

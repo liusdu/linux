@@ -24,6 +24,11 @@
 #include <linux/seccomp.h> /* struct seccomp_filter */
 #endif /* CONFIG_SECCOMP_FILTER */
 
+#ifdef CONFIG_CGROUP_BPF
+#include <linux/bpf-cgroup.h> /* struct cgroup_bpf */
+#include <linux/cgroup-defs.h> /* struct cgroup */
+#endif /* CONFIG_CGROUP_BPF */
+
 #include "common.h"
 
 static void put_landlock_rule(struct landlock_rule *rule)
@@ -82,6 +87,12 @@ struct landlock_hooks *new_landlock_hooks(void)
 		return ERR_PTR(-ENOMEM);
 	atomic_set(&ret->usage, 1);
 	return ret;
+}
+
+inline void get_landlock_hooks(struct landlock_hooks *hooks)
+{
+	if (hooks)
+		atomic_inc(&hooks->usage);
 }
 
 /* Limit Landlock hooks to 256KB. */
@@ -240,3 +251,24 @@ int landlock_seccomp_set_hook(unsigned int flags, const char __user *user_bpf_fd
 	return 0;
 }
 #endif /* CONFIG_SECCOMP_FILTER */
+
+/**
+ * landlock_cgroup_set_hook - attach a Landlock program to a cgroup
+ *
+ * Must be called with cgroup_mutex held.
+ *
+ * @crgp: non-NULL cgroup pointer to attach to
+ * @prog: Landlock program pointer
+ */
+#ifdef CONFIG_CGROUP_BPF
+struct landlock_hooks *landlock_cgroup_set_hook(struct cgroup *cgrp,
+		struct bpf_prog *prog)
+{
+	if (!prog)
+		return ERR_PTR(-EINVAL);
+
+	/* copy the inherited hooks and append a new one */
+	return landlock_set_hook(cgrp->bpf.effective[BPF_CGROUP_LANDLOCK].hooks,
+			prog, NULL);
+}
+#endif /* CONFIG_CGROUP_BPF */
