@@ -849,9 +849,10 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 
 	case BPF_CGROUP_LANDLOCK:
 #ifdef CONFIG_SECURITY_LANDLOCK
-		if (!capable(CAP_SYS_ADMIN))
-			return -EPERM;
-
+		/*
+		 * security/capability check done in landlock_cgroup_set_hook()
+		 * called by cgroup_bpf_update()
+		 */
 		prog = bpf_prog_get_type(attr->attach_bpf_fd,
 				BPF_PROG_TYPE_LANDLOCK);
 		break;

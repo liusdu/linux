@@ -11,6 +11,7 @@
 #include <asm/atomic.h> /* atomic_*() */
 #include <asm/page.h> /* PAGE_SIZE */
 #include <asm/uaccess.h> /* copy_from_user() */
+#include <linux/bitops.h> /* BIT_ULL() */
 #include <linux/bpf.h> /* bpf_prog_put() */
 #include <linux/filter.h> /* struct bpf_prog */
 #include <linux/kernel.h> /* round_up() */
@@ -266,6 +267,12 @@ struct landlock_hooks *landlock_cgroup_set_hook(struct cgroup *cgrp,
 {
 	if (!prog)
 		return ERR_PTR(-EINVAL);
+
+	/* check no_new_privs for tasks in the cgroup */
+	if (!(cgrp->flags & BIT_ULL(CGRP_NO_NEW_PRIVS)) &&
+			security_capable_noaudit(current_cred(),
+				current_user_ns(), CAP_SYS_ADMIN) != 0)
+		return ERR_PTR(-EPERM);
 
 	/* copy the inherited hooks and append a new one */
 	return landlock_set_hook(cgrp->bpf.effective[BPF_CGROUP_LANDLOCK].hooks,

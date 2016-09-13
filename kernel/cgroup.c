@@ -62,6 +62,7 @@
 #include <linux/proc_ns.h>
 #include <linux/nsproxy.h>
 #include <linux/file.h>
+#include <linux/bitops.h>
 #include <net/sock.h>
 
 #define CREATE_TRACE_POINTS
@@ -1985,6 +1986,7 @@ static void init_cgroup_root(struct cgroup_root *root,
 		strcpy(root->name, opts->name);
 	if (opts->cpuset_clone_children)
 		set_bit(CGRP_CPUSET_CLONE_CHILDREN, &root->cgrp.flags);
+	/* no CGRP_NO_NEW_PRIVS flag for the root */
 }
 
 static int cgroup_setup_root(struct cgroup_root *root, u16 ss_mask)
@@ -2812,14 +2814,35 @@ static int cgroup_attach_task(struct cgroup *dst_cgrp,
 	LIST_HEAD(preloaded_csets);
 	struct task_struct *task;
 	int ret;
+#if defined(CONFIG_CGROUP_BPF) && defined(CONFIG_SECURITY_LANDLOCK)
+	bool no_new_privs;
+#endif /* CONFIG_CGROUP_BPF && CONFIG_SECURITY_LANDLOCK */
 
 	if (!cgroup_may_migrate_to(dst_cgrp))
 		return -EBUSY;
 
+	task = leader;
+#if defined(CONFIG_CGROUP_BPF) && defined(CONFIG_SECURITY_LANDLOCK)
+	no_new_privs = !!(dst_cgrp->flags & BIT_ULL(CGRP_NO_NEW_PRIVS));
+	do {
+		no_new_privs = no_new_privs && task_no_new_privs(task);
+		if (!no_new_privs) {
+			if (dst_cgrp->bpf.pinned[BPF_CGROUP_LANDLOCK].hooks &&
+					security_capable_noaudit(current_cred(),
+						current_user_ns(),
+						CAP_SYS_ADMIN) != 0)
+				return -EPERM;
+			clear_bit(CGRP_NO_NEW_PRIVS, &dst_cgrp->flags);
+			break;
+		}
+		if (!threadgroup)
+			break;
+	} while_each_thread(leader, task);
+#endif /* CONFIG_CGROUP_BPF && CONFIG_SECURITY_LANDLOCK */
+
 	/* look up all src csets */
 	spin_lock_irq(&css_set_lock);
 	rcu_read_lock();
-	task = leader;
 	do {
 		cgroup_migrate_add_src(task_css_set(task), dst_cgrp,
 				       &preloaded_csets);
@@ -4345,8 +4368,21 @@ int cgroup_transfer_tasks(struct cgroup *to, struct cgroup *from)
 		return -EBUSY;
 
 	mutex_lock(&cgroup_mutex);
-
 	percpu_down_write(&cgroup_threadgroup_rwsem);
+
+#if defined(CONFIG_CGROUP_BPF) && defined(CONFIG_SECURITY_LANDLOCK)
+	if (!(from->flags & BIT_ULL(CGRP_NO_NEW_PRIVS))) {
+		if (to->bpf.pinned[BPF_CGROUP_LANDLOCK].hooks &&
+				security_capable_noaudit(current_cred(),
+					current_user_ns(), CAP_SYS_ADMIN) != 0) {
+			pr_warn("%s: EPERM\n", __func__);
+			ret = -EPERM;
+			goto out_unlock;
+		}
+		pr_warn("%s: no EPERM\n", __func__);
+		clear_bit(CGRP_NO_NEW_PRIVS, &to->flags);
+	}
+#endif /* CONFIG_CGROUP_BPF && CONFIG_SECURITY_LANDLOCK */
 
 	/* all tasks in @from are being moved, all csets are source */
 	spin_lock_irq(&css_set_lock);
@@ -4378,6 +4414,7 @@ int cgroup_transfer_tasks(struct cgroup *to, struct cgroup *from)
 	} while (task && !ret);
 out_err:
 	cgroup_migrate_finish(&preloaded_csets);
+out_unlock:
 	percpu_up_write(&cgroup_threadgroup_rwsem);
 	mutex_unlock(&cgroup_mutex);
 	return ret;
@@ -5241,6 +5278,9 @@ static struct cgroup *cgroup_create(struct cgroup *parent)
 
 	if (test_bit(CGRP_CPUSET_CLONE_CHILDREN, &parent->flags))
 		set_bit(CGRP_CPUSET_CLONE_CHILDREN, &cgrp->flags);
+#if defined(CONFIG_CGROUP_BPF) && defined(CONFIG_SECURITY_LANDLOCK)
+	set_bit(CGRP_NO_NEW_PRIVS, &cgrp->flags);
+#endif /* CONFIG_CGROUP_BPF && CONFIG_SECURITY_LANDLOCK */
 
 	cgrp->self.serial_nr = css_serial_nr_next++;
 
