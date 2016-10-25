@@ -130,6 +130,14 @@ enum bpf_attach_type {
 
 #define BPF_F_NO_PREALLOC	(1U << 0)
 
+union bpf_prog_subtype {
+	struct {
+		__u32		hook; /* enum landlock_hook */
+		__aligned_u64	access; /* LANDLOCK_SUBTYPE_ACCESS_* */
+		__aligned_u64	option; /* LANDLOCK_SUBTYPE_OPTION_* */
+	} landlock_rule;
+} __attribute__((aligned(8)));
+
 union bpf_attr {
 	struct { /* anonymous struct used by BPF_MAP_CREATE command */
 		__u32	map_type;	/* one of enum bpf_map_type */
@@ -158,6 +166,7 @@ union bpf_attr {
 		__u32		log_size;	/* size of user buffer */
 		__aligned_u64	log_buf;	/* user supplied buffer */
 		__u32		kern_version;	/* checked when prog_type=kprobe */
+		union bpf_prog_subtype prog_subtype;
 	};
 
 	struct { /* anonymous struct used by BPF_OBJ_* commands */
@@ -549,6 +558,15 @@ struct xdp_md {
 	__u32 data;
 	__u32 data_end;
 };
+
+/* eBPF context and functions allowed for a rule */
+#define _LANDLOCK_SUBTYPE_ACCESS_MASK		((1ULL << 0) - 1)
+
+/*
+ * (future) options for a Landlock rule (e.g. run even if a previous rule
+ * returned an errno code)
+ */
+#define _LANDLOCK_SUBTYPE_OPTION_MASK	((1ULL << 0) - 1)
 
 /* Map handle entry */
 struct landlock_handle {
