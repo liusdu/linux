@@ -111,6 +111,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_XDP,
 	BPF_PROG_TYPE_PERF_EVENT,
 	BPF_PROG_TYPE_CGROUP_SKB,
+	BPF_PROG_TYPE_LANDLOCK,
 };
 
 enum bpf_attach_type {
@@ -559,6 +560,12 @@ struct xdp_md {
 	__u32 data_end;
 };
 
+/* LSM hooks */
+enum landlock_hook {
+	LANDLOCK_HOOK_UNSPEC,
+};
+#define _LANDLOCK_HOOK_LAST LANDLOCK_HOOK_UNSPEC
+
 /* eBPF context and functions allowed for a rule */
 #define _LANDLOCK_SUBTYPE_ACCESS_MASK		((1ULL << 0) - 1)
 
@@ -576,5 +583,18 @@ struct landlock_handle {
 		__aligned_u64 glob;
 	};
 } __attribute__((aligned(8)));
+
+/**
+ * struct landlock_data
+ *
+ * @hook: LSM hook ID (e.g. BPF_PROG_TYPE_LANDLOCK_FILE_OPEN)
+ * @args: LSM hook arguments, see include/linux/lsm_hooks.h for there
+ *        description and the LANDLOCK_HOOK* definitions from
+ *        security/landlock/lsm.c for their types.
+ */
+struct landlock_data {
+	__u32 hook; /* enum landlock_hook */
+	__u64 args[6];
+};
 
 #endif /* _UAPI__LINUX_BPF_H__ */
