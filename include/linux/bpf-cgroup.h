@@ -31,13 +31,13 @@ struct cgroup_bpf {
 void cgroup_bpf_put(struct cgroup *cgrp);
 void cgroup_bpf_inherit(struct cgroup *cgrp, struct cgroup *parent);
 
-void __cgroup_bpf_update(struct cgroup *cgrp,
+int __cgroup_bpf_update(struct cgroup *cgrp,
 			 struct cgroup *parent,
 			 struct bpf_prog *prog,
 			 enum bpf_attach_type type);
 
 /* Wrapper for __cgroup_bpf_update() protected by cgroup_mutex */
-void cgroup_bpf_update(struct cgroup *cgrp,
+int cgroup_bpf_update(struct cgroup *cgrp,
 		       struct bpf_prog *prog,
 		       enum bpf_attach_type type);
 

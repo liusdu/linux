@@ -831,6 +831,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 {
 	struct bpf_prog *prog;
 	struct cgroup *cgrp;
+	int result;
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -858,10 +859,10 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 		return PTR_ERR(cgrp);
 	}
 
-	cgroup_bpf_update(cgrp, prog, attr->attach_type);
+	result = cgroup_bpf_update(cgrp, prog, attr->attach_type);
 	cgroup_put(cgrp);
 
-	return 0;
+	return result;
 }
 
 #define BPF_PROG_DETACH_LAST_FIELD attach_type
@@ -869,6 +870,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 static int bpf_prog_detach(const union bpf_attr *attr)
 {
 	struct cgroup *cgrp;
+	int result = 0;
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -883,7 +885,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 		if (IS_ERR(cgrp))
 			return PTR_ERR(cgrp);
 
-		cgroup_bpf_update(cgrp, NULL, attr->attach_type);
+		result = cgroup_bpf_update(cgrp, NULL, attr->attach_type);
 		cgroup_put(cgrp);
 		break;
 
@@ -891,7 +893,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 		return -EINVAL;
 	}
 
-	return 0;
+	return result;
 }
 #endif /* CONFIG_CGROUP_BPF */
 
