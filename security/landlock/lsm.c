@@ -8,6 +8,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <asm/current.h>
 #include <linux/bpf.h> /* enum bpf_reg_type, struct landlock_data */
 #include <linux/cred.h>
 #include <linux/err.h> /* MAX_ERRNO */
@@ -15,6 +16,7 @@
 #include <linux/kernel.h> /* FIELD_SIZEOF() */
 #include <linux/landlock.h>
 #include <linux/lsm_hooks.h>
+#include <linux/seccomp.h> /* struct seccomp_* */
 #include <linux/types.h> /* uintptr_t */
 
 /* hook arguments */
@@ -161,8 +163,10 @@ static int landlock_enforce(enum landlock_hook hook, __u64 args[6])
 		.args[5] = args[5],
 	};
 
-	/* placeholder for seccomp and cgroup managers */
-	ret = landlock_run_prog(hook_idx, &ctx, NULL);
+#ifdef CONFIG_SECCOMP_FILTER
+	ret = landlock_run_prog(hook_idx, &ctx,
+			current->seccomp.landlock_hooks);
+#endif /* CONFIG_SECCOMP_FILTER */
 
 	return -ret;
 }

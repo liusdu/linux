@@ -74,5 +74,10 @@ struct landlock_hooks {
 
 void put_landlock_hooks(struct landlock_hooks *hooks);
 
+#ifdef CONFIG_SECCOMP_FILTER
+int landlock_seccomp_append_prog(unsigned int flags,
+		const char __user *user_bpf_fd);
+#endif /* CONFIG_SECCOMP_FILTER */
+
 #endif /* CONFIG_SECURITY_LANDLOCK */
 #endif /* _LINUX_LANDLOCK_H */

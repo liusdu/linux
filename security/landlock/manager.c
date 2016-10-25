@@ -14,8 +14,11 @@
 #include <linux/filter.h> /* struct bpf_prog */
 #include <linux/kernel.h> /* round_up() */
 #include <linux/landlock.h>
+#include <linux/sched.h> /* current_cred(), task_no_new_privs() */
+#include <linux/security.h> /* security_capable_noaudit() */
 #include <linux/slab.h> /* alloc(), kfree() */
 #include <linux/types.h> /* atomic_t */
+#include <linux/uaccess.h> /* copy_from_user() */
 
 #include "common.h"
 
@@ -263,3 +266,51 @@ put_rule:
 	put_landlock_rule(rule);
 	return new_hooks;
 }
+
+/**
+ * landlock_seccomp_append_prog - attach a Landlock program to the current process
+ *
+ * current->seccomp.landlock_hooks is lazily allocated. When a process fork,
+ * only a pointer is copied. When a new hook is added by a process, if there is
+ * other references to this process' landlock_hooks, then a new allocation is
+ * made to contains an array pointing to Landlock program lists. This design
+ * has low-performance impact and memory efficiency while keeping the property
+ * of append-only programs.
+ *
+ * @flags: not used for now, but could be used for TSYNC
+ * @user_bpf_fd: file descriptor pointing to a loaded/checked eBPF program
+ *               dedicated to Landlock
+ */
+#ifdef CONFIG_SECCOMP_FILTER
+int landlock_seccomp_append_prog(unsigned int flags, const char __user *user_bpf_fd)
+{
+	struct landlock_hooks *new_hooks;
+	struct bpf_prog *prog;
+	int bpf_fd;
+
+	if (!task_no_new_privs(current) &&
+	    security_capable_noaudit(current_cred(),
+				     current_user_ns(), CAP_SYS_ADMIN) != 0)
+		return -EPERM;
+	if (!user_bpf_fd)
+		return -EINVAL;
+	if (flags)
+		return -EINVAL;
+	if (copy_from_user(&bpf_fd, user_bpf_fd, sizeof(user_bpf_fd)))
+		return -EFAULT;
+	prog = bpf_prog_get(bpf_fd);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
+
+	/*
+	 * We don't need to lock anything for the current process hierarchy,
+	 * everything is guarded by the atomic counters.
+	 */
+	new_hooks = landlock_append_prog(current->seccomp.landlock_hooks, prog);
+	/* @prog is managed/freed by landlock_append_prog() */
+	if (IS_ERR(new_hooks))
+		return PTR_ERR(new_hooks);
+	current->seccomp.landlock_hooks = new_hooks;
+	return 0;
+}
+#endif /* CONFIG_SECCOMP_FILTER */
