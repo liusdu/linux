@@ -607,7 +607,9 @@ enum landlock_hook {
 #define _LANDLOCK_HOOK_LAST LANDLOCK_HOOK_INODE_GETATTR
 
 /* eBPF context and functions allowed for a rule */
-#define _LANDLOCK_SUBTYPE_ACCESS_MASK		((1ULL << 0) - 1)
+#define LANDLOCK_SUBTYPE_ACCESS_UPDATE		(1 << 0)
+#define LANDLOCK_SUBTYPE_ACCESS_DEBUG		(1 << 1)
+#define _LANDLOCK_SUBTYPE_ACCESS_MASK		((1ULL << 2) - 1)
 
 /*
  * (future) options for a Landlock rule (e.g. run even if a previous rule
