@@ -72,5 +72,7 @@ struct landlock_hooks {
 	struct landlock_node *nodes[_LANDLOCK_HOOK_LAST];
 };
 
+void put_landlock_hooks(struct landlock_hooks *hooks);
+
 #endif /* CONFIG_SECURITY_LANDLOCK */
 #endif /* _LINUX_LANDLOCK_H */
