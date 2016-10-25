@@ -15,6 +15,7 @@
 #include <linux/bpf.h>
 #include <linux/bpf-cgroup.h>
 #include <net/sock.h>
+#include <linux/landlock.h>
 
 DEFINE_STATIC_KEY_FALSE(cgroup_bpf_enabled_key);
 EXPORT_SYMBOL(cgroup_bpf_enabled_key);
@@ -31,7 +32,15 @@ void cgroup_bpf_put(struct cgroup *cgrp)
 		struct bpf_object pinned = cgrp->bpf.pinned[type];
 
 		if (pinned.prog) {
-			bpf_prog_put(pinned.prog);
+			switch (type) {
+			case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+				put_landlock_hooks(pinned.hooks);
+				break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+			default:
+				bpf_prog_put(pinned.prog);
+			}
 			static_branch_dec(&cgroup_bpf_enabled_key);
 		}
 	}
@@ -48,11 +57,30 @@ void cgroup_bpf_inherit(struct cgroup *cgrp, struct cgroup *parent)
 
 	for (type = 0; type < ARRAY_SIZE(cgrp->bpf.effective); type++) {
 		struct bpf_prog *prog;
+#ifdef CONFIG_SECURITY_LANDLOCK
+		struct landlock_hooks *hooks;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
-		prog = rcu_dereference_protected(
-				parent->bpf.effective[type].prog,
-				lockdep_is_held(&cgroup_mutex));
-		rcu_assign_pointer(cgrp->bpf.effective[type].prog, prog);
+		switch (type) {
+		case BPF_CGROUP_INET_INGRESS:
+		case BPF_CGROUP_INET_EGRESS:
+			prog = rcu_dereference_protected(
+					parent->bpf.effective[type].prog,
+					lockdep_is_held(&cgroup_mutex));
+			rcu_assign_pointer(cgrp->bpf.effective[type].prog, prog);
+			break;
+		case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+			hooks = rcu_dereference_protected(
+					parent->bpf.effective[type].hooks,
+					lockdep_is_held(&cgroup_mutex));
+			rcu_assign_pointer(cgrp->bpf.effective[type].hooks, hooks);
+			get_landlock_hooks(hooks);
+			break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+		default:
+			WARN_ON(1);
+		}
 	}
 }
 
@@ -89,31 +117,80 @@ int __cgroup_bpf_update(struct cgroup *cgrp,
 			 enum bpf_attach_type type)
 {
 	struct bpf_prog *old_prog = NULL, *effective_prog;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	struct landlock_hooks *effective_hooks;
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	struct cgroup_subsys_state *pos;
+	bool had_obj = false;
 
-	old_prog = xchg(&cgrp->bpf.pinned[type].prog, prog);
-
-	effective_prog = (!prog && parent) ?
-		rcu_dereference_protected(parent->bpf.effective[type].prog,
-					  lockdep_is_held(&cgroup_mutex)) :
-		prog;
+	switch (type) {
+	case BPF_CGROUP_INET_INGRESS:
+	case BPF_CGROUP_INET_EGRESS:
+		old_prog = xchg(&cgrp->bpf.pinned[type].prog, prog);
+		if (old_prog)
+			had_obj = true;
+		effective_prog = (!prog && parent) ? rcu_dereference_protected(
+				parent->bpf.effective[type].prog,
+				lockdep_is_held(&cgroup_mutex)) : prog;
+		break;
+	case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+		/* append hook */
+		had_obj = !!rcu_dereference_protected(
+				cgrp->bpf.pinned[type].hooks,
+				lockdep_is_held(&cgroup_mutex));
+		effective_hooks = landlock_cgroup_append_prog(cgrp, prog);
+		if (IS_ERR(effective_hooks))
+			return PTR_ERR(effective_hooks);
+		break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+	default:
+		return -EINVAL;
+	}
 
 	css_for_each_descendant_pre(pos, &cgrp->self) {
 		struct cgroup *desc = container_of(pos, struct cgroup, self);
 
-		/* skip the subtree if the descendant has its own program */
-		if (desc->bpf.pinned[type].prog && desc != cgrp)
-			pos = css_rightmost_descendant(pos);
-		else
+		switch (type) {
+		case BPF_CGROUP_INET_INGRESS:
+		case BPF_CGROUP_INET_EGRESS:
+			/*
+			 * skip the subtree if the descendant has its own
+			 * program
+			 */
+			if (desc->bpf.pinned[type].prog && desc != cgrp) {
+				pos = css_rightmost_descendant(pos);
+				break;
+			}
 			rcu_assign_pointer(desc->bpf.effective[type].prog,
 					   effective_prog);
+			break;
+		case BPF_CGROUP_LANDLOCK:
+#ifdef CONFIG_SECURITY_LANDLOCK
+			/*
+			 * extend the subtree hooks if the descendant has its
+			 * own hooks
+			 */
+			if (desc->bpf.pinned[type].hooks && desc != cgrp) {
+				landlock_insert_node(desc->bpf.pinned[type].hooks,
+						prog->subtype.landlock_rule.hook,
+						effective_hooks);
+				break;
+			}
+			rcu_assign_pointer(desc->bpf.effective[type].hooks,
+					effective_hooks);
+			break;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+		default:
+			WARN_ON(1);
+		}
 	}
 
 	if (prog)
 		static_branch_inc(&cgroup_bpf_enabled_key);
-
-	if (old_prog) {
-		bpf_prog_put(old_prog);
+	if (had_obj) {
+		if (old_prog)
+			bpf_prog_put(old_prog);
 		static_branch_dec(&cgroup_bpf_enabled_key);
 	}
 	return 0;

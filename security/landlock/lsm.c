@@ -9,6 +9,7 @@
  */
 
 #include <asm/current.h>
+#include <linux/bpf-cgroup.h> /* cgroup_bpf_enabled */
 #include <linux/bpf.h> /* enum bpf_reg_type, struct landlock_data */
 #include <linux/cred.h>
 #include <linux/err.h> /* MAX_ERRNO */
@@ -23,6 +24,10 @@
 #include <linux/dcache.h> /* struct dentry */
 #include <linux/fs.h> /* struct inode */
 #include <linux/path.h> /* struct path */
+
+#ifdef CONFIG_CGROUP_BPF
+#include <linux/cgroup-defs.h> /* struct cgroup */
+#endif /* CONFIG_CGROUP_BPF */
 
 #include "checker_fs.h"
 #include "common.h"
@@ -151,6 +156,9 @@ out:
 static int landlock_enforce(enum landlock_hook hook, __u64 args[6])
 {
 	u32 ret = 0;
+#ifdef CONFIG_CGROUP_BPF
+	struct cgroup *cgrp;
+#endif /* CONFIG_CGROUP_BPF */
 	u32 hook_idx = get_index(hook);
 
 	struct landlock_data ctx = {
@@ -166,8 +174,20 @@ static int landlock_enforce(enum landlock_hook hook, __u64 args[6])
 #ifdef CONFIG_SECCOMP_FILTER
 	ret = landlock_run_prog(hook_idx, &ctx,
 			current->seccomp.landlock_hooks);
+	if (ret)
+		goto out;
 #endif /* CONFIG_SECCOMP_FILTER */
 
+#ifdef CONFIG_CGROUP_BPF
+	if (cgroup_bpf_enabled) {
+		/* get the default cgroup associated with the current thread */
+		cgrp = task_css_set(current)->dfl_cgrp;
+		ret = landlock_run_prog(hook_idx, &ctx,
+				cgrp->bpf.effective[BPF_CGROUP_LANDLOCK].hooks);
+	}
+#endif /* CONFIG_CGROUP_BPF */
+
+out:
 	return -ret;
 }
 
@@ -282,9 +302,21 @@ static struct security_hook_list landlock_hooks[] = {
 	LANDLOCK_HOOK_INIT(inode_getattr),
 };
 
+#ifdef CONFIG_SECCOMP_FILTER
+#ifdef CONFIG_CGROUP_BPF
+#define LANDLOCK_MANAGERS "seccomp and cgroups"
+#else /* CONFIG_CGROUP_BPF */
+#define LANDLOCK_MANAGERS "seccomp"
+#endif /* CONFIG_CGROUP_BPF */
+#elif define(CONFIG_CGROUP_BPF)
+#define LANDLOCK_MANAGERS "cgroups"
+#else
+#error "Need CONFIG_SECCOMP_FILTER or CONFIG_CGROUP_BPF"
+#endif /* CONFIG_SECCOMP_FILTER */
+
 void __init landlock_add_hooks(void)
 {
-	pr_info("landlock: Becoming ready to sandbox with seccomp\n");
+	pr_info("landlock: Becoming ready to sandbox with " LANDLOCK_MANAGERS "\n");
 	security_add_hooks(landlock_hooks, ARRAY_SIZE(landlock_hooks));
 }
 

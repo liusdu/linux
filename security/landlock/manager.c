@@ -20,6 +20,11 @@
 #include <linux/types.h> /* atomic_t */
 #include <linux/uaccess.h> /* copy_from_user() */
 
+#ifdef CONFIG_CGROUP_BPF
+#include <linux/bpf-cgroup.h> /* struct cgroup_bpf */
+#include <linux/cgroup-defs.h> /* struct cgroup */
+#endif /* CONFIG_CGROUP_BPF */
+
 #include "common.h"
 
 static void put_landlock_rule(struct landlock_rule *rule)
@@ -66,6 +71,12 @@ void put_landlock_hooks(struct landlock_hooks *hooks)
 		}
 		kfree(hooks);
 	}
+}
+
+void get_landlock_hooks(struct landlock_hooks *hooks)
+{
+	if (hooks)
+		atomic_inc(&hooks->usage);
 }
 
 static struct landlock_hooks *new_raw_landlock_hooks(void)
@@ -314,3 +325,55 @@ int landlock_seccomp_append_prog(unsigned int flags, const char __user *user_bpf
 	return 0;
 }
 #endif /* CONFIG_SECCOMP_FILTER */
+
+/**
+ * landlock_cgroup_set_hook - attach a Landlock program to a cgroup
+ *
+ * Must be called with cgroup_mutex held.
+ *
+ * @crgp: non-NULL cgroup pointer to attach to
+ * @prog: Landlock program pointer
+ */
+#ifdef CONFIG_CGROUP_BPF
+struct landlock_hooks *landlock_cgroup_append_prog(struct cgroup *cgrp,
+		struct bpf_prog *prog)
+{
+	if (!prog)
+		return ERR_PTR(-EINVAL);
+
+	/* copy the inherited hooks and append a new one */
+	return landlock_append_prog(cgrp->bpf.effective[BPF_CGROUP_LANDLOCK].hooks,
+			prog);
+}
+
+/**
+ * landlock_insert_node - insert a Landlock node in an existing hook
+ *
+ * This is useful to keep a consistent hierarchy tree whenever a branch add
+ * its one rules. However, this must be called at every new rule addition to
+ * keep it consistent.
+ *
+ * @dst: Landlock hooks to update. They must not have more than one
+ *       missing/desynchronized node to keep the same hierarchy than @src.
+ * @hook: hook to synchronize.
+ * @src: Landlock hooks reference.
+ */
+void landlock_insert_node(struct landlock_hooks *dst,
+		enum landlock_hook hook, struct landlock_hooks *src)
+{
+	struct landlock_node **walker;
+	u32 hook_idx = get_index(hook);
+
+	for (walker = &dst->nodes[hook_idx]; *walker;
+			walker = &(*walker)->prev) {
+		if (*walker == src->nodes[hook_idx])
+			return;
+		/* assume that the parent node was inherited */
+		if (*walker == src->nodes[hook_idx]->prev)
+			break;
+	}
+	atomic_inc(&src->nodes[hook_idx]->usage);
+	put_landlock_node(*walker);
+	smp_store_release(walker, src->nodes[hook_idx]);
+}
+#endif /* CONFIG_CGROUP_BPF */

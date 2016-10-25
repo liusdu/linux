@@ -124,6 +124,7 @@ enum bpf_prog_type {
 enum bpf_attach_type {
 	BPF_CGROUP_INET_INGRESS,
 	BPF_CGROUP_INET_EGRESS,
+	BPF_CGROUP_LANDLOCK,
 	__MAX_BPF_ATTACH_TYPE
 };
 
