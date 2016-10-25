@@ -88,6 +88,7 @@ enum bpf_arg_type {
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
 
 	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS map handle */
+	ARG_CONST_PTR_TO_LANDLOCK_ARG_FS,	/* pointer to Landlock FS hook argument */
 };
 
 /* type of values returned from helper functions */
@@ -157,6 +158,7 @@ enum bpf_reg_type {
 
 	/* Landlock */
 	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
+	CONST_PTR_TO_LANDLOCK_ARG_FS,
 };
 
 struct bpf_prog;

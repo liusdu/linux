@@ -189,6 +189,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_PACKET]		= "pkt",
 	[PTR_TO_PACKET_END]	= "pkt_end",
 	[CONST_PTR_TO_LANDLOCK_HANDLE_FS] = "landlock_handle_fs",
+	[CONST_PTR_TO_LANDLOCK_ARG_FS]	= "landlock_arg_fs",
 };
 
 static void print_verifier_state(struct bpf_verifier_state *state)
@@ -515,6 +516,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case FRAME_PTR:
 	case CONST_PTR_TO_MAP:
 	case CONST_PTR_TO_LANDLOCK_HANDLE_FS:
+	case CONST_PTR_TO_LANDLOCK_ARG_FS:
 		return true;
 	default:
 		return false;
@@ -978,6 +980,10 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			goto err_type;
 	} else if (arg_type == ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS) {
 		expected_type = CONST_PTR_TO_LANDLOCK_HANDLE_FS;
+		if (type != expected_type)
+			goto err_type;
+	} else if (arg_type == ARG_CONST_PTR_TO_LANDLOCK_ARG_FS) {
+		expected_type = CONST_PTR_TO_LANDLOCK_ARG_FS;
 		if (type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_STACK ||

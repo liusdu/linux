@@ -12,6 +12,24 @@
 #define _SECURITY_LANDLOCK_COMMON_H
 
 #include <linux/bpf.h> /* enum landlock_hook */
+#include <linux/fs.h> /* struct file, struct inode */
+#include <linux/path.h> /* struct path */
+
+enum landlock_argtype {
+	LANDLOCK_ARGTYPE_NONE,
+	LANDLOCK_ARGTYPE_FILE,
+	LANDLOCK_ARGTYPE_INODE,
+	LANDLOCK_ARGTYPE_PATH,
+};
+
+struct landlock_arg_fs {
+	enum landlock_argtype type;
+	union {
+		struct file *file;
+		struct inode *inode;
+		const struct path *path;
+	};
+};
 
 /**
  * get_index - get an index for the rules of struct landlock_hooks
