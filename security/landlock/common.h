@@ -15,6 +15,19 @@
 #include <linux/fs.h> /* struct file, struct inode */
 #include <linux/path.h> /* struct path */
 
+/**
+ * for_each_handle - iterate over all handles of an arraymap
+ *
+ * @i: index in the arraymap
+ * @handle: struct map_landlock_handle pointer
+ * @array: struct bpf_array pointer to walk through
+ */
+#define for_each_handle(i, handle, array)				\
+	for (i = 0; i < atomic_read(&array->n_entries) &&		\
+			(handle = *((struct map_landlock_handle **)	\
+				(array->value + array->elem_size * i)));\
+		i++)
+
 enum landlock_argtype {
 	LANDLOCK_ARGTYPE_NONE,
 	LANDLOCK_ARGTYPE_FILE,

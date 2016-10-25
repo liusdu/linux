@@ -363,6 +363,11 @@ extern const struct bpf_func_proto bpf_skb_vlan_push_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_pop_proto;
 extern const struct bpf_func_proto bpf_get_stackid_proto;
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+extern const struct bpf_func_proto bpf_landlock_cmp_fs_beneath_proto;
+extern const struct bpf_func_proto bpf_landlock_get_fs_mode_proto;
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);

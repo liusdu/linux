@@ -22,6 +22,7 @@
 #include <linux/fs.h> /* struct inode */
 #include <linux/path.h> /* struct path */
 
+#include "checker_fs.h"
 #include "common.h"
 
 #define MAP0(s, m, ...)
@@ -170,6 +171,11 @@ static const struct bpf_func_proto *bpf_landlock_func_proto(
 		enum bpf_func_id func_id, union bpf_prog_subtype *prog_subtype)
 {
 	switch (func_id) {
+	case BPF_FUNC_landlock_get_fs_mode:
+		return &bpf_landlock_get_fs_mode_proto;
+	case BPF_FUNC_landlock_cmp_fs_beneath:
+		return &bpf_landlock_cmp_fs_beneath_proto;
+
 	default:
 		return NULL;
 	}

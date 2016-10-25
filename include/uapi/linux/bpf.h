@@ -101,6 +101,13 @@ enum bpf_map_handle_type {
 	/* BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB, */
 };
 
+enum bpf_map_array_op {
+	BPF_MAP_ARRAY_OP_UNSPEC,
+	BPF_MAP_ARRAY_OP_OR,
+	BPF_MAP_ARRAY_OP_AND,
+	BPF_MAP_ARRAY_OP_XOR,
+};
+
 enum bpf_prog_type {
 	BPF_PROG_TYPE_UNSPEC,
 	BPF_PROG_TYPE_SOCKET_FILTER,
@@ -465,6 +472,30 @@ enum bpf_func_id {
 	 */
 	BPF_FUNC_set_hash_invalid,
 
+	/**
+	 * bpf_landlock_cmp_fs_beneath(opt, map, map_op, arg_fs)
+	 * Check if a struct inode is a leaf of file system handles
+	 *
+	 * @opt: check options (e.g. LANDLOCK_FLAG_OPT_REVERSE)
+	 * @map: handles to compare against
+	 * @map_op: which elements of the map to use (e.g. BPF_MAP_ARRAY_OP_OR)
+	 * @arg_fs: struct landlock_arg_fs address to compare with
+	 *
+	 * Return: 0 if the file is the same or beneath the handles,
+	 * 1 otherwise, or a negative value if an error occurred.
+	 */
+	BPF_FUNC_landlock_cmp_fs_beneath,
+
+	/**
+	 * bpf_landlock_get_fs_mode(arg_fs)
+	 * Get the mode of a struct landlock_arg_fs
+	 *
+	 * @arg_fs: struct landlock_arg_fs address
+	 *
+	 * Return: the file mode
+	 */
+	BPF_FUNC_landlock_get_fs_mode,
+
 	__BPF_FUNC_MAX_ID,
 };
 
@@ -582,6 +613,10 @@ enum landlock_hook {
  * returned an errno code)
  */
 #define _LANDLOCK_SUBTYPE_OPTION_MASK	((1ULL << 0) - 1)
+
+/* Handle option flags */
+#define LANDLOCK_FLAG_OPT_REVERSE	(1<<0)
+#define _LANDLOCK_FLAG_OPT_MASK		((1ULL << 1) - 1)
 
 /* Map handle entry */
 struct landlock_handle {
