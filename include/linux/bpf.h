@@ -13,6 +13,11 @@
 #include <linux/percpu.h>
 #include <linux/err.h>
 
+#ifdef CONFIG_SECURITY_LANDLOCK
+#include <linux/fs.h> /* struct file */
+#include <linux/spinlock_types.h> /* spinlock_t */
+#endif /* CONFIG_SECURITY_LANDLOCK */
+
 struct perf_event;
 struct bpf_map;
 
@@ -38,6 +43,7 @@ struct bpf_map_ops {
 struct bpf_map {
 	atomic_t refcnt;
 	enum bpf_map_type map_type;
+	enum bpf_map_array_type map_array_type;
 	u32 key_size;
 	u32 value_size;
 	u32 max_entries;
@@ -80,6 +86,8 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_CTX,		/* pointer to context */
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
+
+	ARG_CONST_PTR_TO_LANDLOCK_HANDLE_FS,	/* pointer to Landlock FS map handle */
 };
 
 /* type of values returned from helper functions */
@@ -146,6 +154,9 @@ enum bpf_reg_type {
 	 * map element.
 	 */
 	PTR_TO_MAP_VALUE_ADJ,
+
+	/* Landlock */
+	CONST_PTR_TO_LANDLOCK_HANDLE_FS,
 };
 
 struct bpf_prog;
@@ -196,12 +207,25 @@ struct bpf_array {
 	 */
 	enum bpf_prog_type owner_prog_type;
 	bool owner_jited;
+#ifdef CONFIG_SECURITY_LANDLOCK
+	atomic_t n_entries;	/* number of entries in a handle array */
+	raw_spinlock_t update;	/* protect n_entries consistency */
+#endif /* CONFIG_SECURITY_LANDLOCK */
 	union {
 		char value[0] __aligned(8);
 		void *ptrs[0] __aligned(8);
 		void __percpu *pptrs[0] __aligned(8);
 	};
 };
+
+#ifdef CONFIG_SECURITY_LANDLOCK
+struct map_landlock_handle {
+	u32 type; /* enum bpf_map_handle_type */
+	union {
+		struct path path;
+	};
+};
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 #define MAX_TAIL_CALL_CNT 32
 

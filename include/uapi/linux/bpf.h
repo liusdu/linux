@@ -87,6 +87,18 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_PERCPU_ARRAY,
 	BPF_MAP_TYPE_STACK_TRACE,
 	BPF_MAP_TYPE_CGROUP_ARRAY,
+	BPF_MAP_TYPE_LANDLOCK_ARRAY,
+};
+
+enum bpf_map_array_type {
+	BPF_MAP_ARRAY_TYPE_UNSPEC,
+	BPF_MAP_ARRAY_TYPE_LANDLOCK_FS,
+};
+
+enum bpf_map_handle_type {
+	BPF_MAP_HANDLE_TYPE_UNSPEC,
+	BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_FD,
+	/* BPF_MAP_HANDLE_TYPE_LANDLOCK_FS_GLOB, */
 };
 
 enum bpf_prog_type {
@@ -537,5 +549,14 @@ struct xdp_md {
 	__u32 data;
 	__u32 data_end;
 };
+
+/* Map handle entry */
+struct landlock_handle {
+	__u32 type; /* enum bpf_map_handle_type */
+	union {
+		__u32 fd;
+		__aligned_u64 glob;
+	};
+} __attribute__((aligned(8)));
 
 #endif /* _UAPI__LINUX_BPF_H__ */
