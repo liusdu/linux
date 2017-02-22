@@ -29,6 +29,7 @@
 
 static char license[128];
 static int kern_version;
+static union bpf_prog_subtype subtype = {};
 static bool processed_sec[128];
 char bpf_log_buf[BPF_LOG_BUF_SIZE];
 int map_fd[MAX_MAPS];
@@ -98,7 +99,7 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 	}
 
 	fd = bpf_load_program(prog_type, prog, insns_cnt, license, kern_version,
-			      bpf_log_buf, BPF_LOG_BUF_SIZE);
+			      bpf_log_buf, BPF_LOG_BUF_SIZE, &subtype);
 	if (fd < 0) {
 		printf("bpf_load_program() err=%d\n%s", errno, bpf_log_buf);
 		return -1;

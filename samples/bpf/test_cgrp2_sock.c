@@ -38,7 +38,7 @@ static int prog_load(int idx)
 	size_t insns_cnt = sizeof(prog) / sizeof(struct bpf_insn);
 
 	return bpf_load_program(BPF_PROG_TYPE_CGROUP_SOCK, prog, insns_cnt,
-				"GPL", 0, bpf_log_buf, BPF_LOG_BUF_SIZE);
+				"GPL", 0, bpf_log_buf, BPF_LOG_BUF_SIZE, NULL);
 }
 
 static int usage(const char *argv0)
