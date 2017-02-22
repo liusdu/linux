@@ -10,6 +10,7 @@ TARGETS += futex
 TARGETS += gpio
 TARGETS += ipc
 TARGETS += kcmp
+TARGETS += landlock
 TARGETS += lib
 TARGETS += membarrier
 TARGETS += memfd
