@@ -11,7 +11,7 @@
 #include <asm/current.h>
 #include <asm/processor.h> /* task_pt_regs() */
 #include <asm/syscall.h> /* syscall_get_nr(), syscall_get_arch() */
-#include <linux/bpf.h> /* enum bpf_access_type, enum bpf_*, enum landlock_subtype_event, struct landlock_context, struct bpf_handle_fs  */
+#include <linux/bpf.h> /* enum bpf_access_type, struct landlock_context */
 #include <linux/err.h> /* EPERM */
 #include <linux/filter.h> /* struct bpf_prog, BPF_PROG_RUN() */
 #include <linux/kernel.h> /* ARRAY_SIZE */
@@ -78,6 +78,12 @@ static inline const struct bpf_func_proto *bpf_landlock_func_proto(
 	switch (func_id) {
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;
+
+	/* event_fs */
+	case BPF_FUNC_handle_fs_get_mode:
+		if (event_fs)
+			return &bpf_handle_fs_get_mode_proto;
+		return NULL;
 
 	/* ability_write */
 	case BPF_FUNC_map_delete_elem:
