@@ -290,7 +290,44 @@ static u64 mem_prot_to_access(unsigned long prot, bool private)
 
 static inline bool landlock_used(void)
 {
+#ifdef CONFIG_SECCOMP_FILTER
+	return !!(current->seccomp.landlock_events);
+#else
 	return false;
+#endif /* CONFIG_SECCOMP_FILTER */
+}
+
+/**
+ * landlock_run_prog - run Landlock program for a syscall
+ *
+ * @event_idx: event index in the rules array
+ * @ctx: non-NULL eBPF context
+ * @events: Landlock events pointer
+ */
+static int landlock_run_prog(u32 event_idx, const struct landlock_context *ctx,
+		struct landlock_events *events)
+{
+	struct landlock_node *node;
+
+	if (!events)
+		return 0;
+
+	for (node = events->nodes[event_idx]; node; node = node->prev) {
+		struct landlock_rule *rule;
+
+		for (rule = node->rule; rule; rule = rule->prev) {
+			u32 ret;
+
+			if (WARN_ON(!rule->prog))
+				continue;
+			rcu_read_lock();
+			ret = BPF_PROG_RUN(rule->prog, (void *)ctx);
+			rcu_read_unlock();
+			if (ret)
+				return -EPERM;
+		}
+	}
+	return 0;
 }
 
 static int landlock_decide(enum landlock_subtype_event event,
@@ -309,7 +346,10 @@ static int landlock_decide(enum landlock_subtype_event event,
 		.arg2 = ctx_values[1],
 	};
 
-	/* insert manager call here */
+#ifdef CONFIG_SECCOMP_FILTER
+	ret = landlock_run_prog(event_idx, &ctx,
+			current->seccomp.landlock_events);
+#endif /* CONFIG_SECCOMP_FILTER */
 
 	return ret;
 }
