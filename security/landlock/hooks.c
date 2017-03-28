@@ -27,10 +27,8 @@ __init void landlock_register_hooks(struct security_hook_list *hooks, int count)
 {
 	int i;
 
-	for (i = 0; i < count; i++) {
-		hooks[i].lsm = "landlock";
+	for (i = 0; i < count; i++)
 		list_add_tail_rcu(&hooks[i].list, hooks[i].head);
-	}
 }
 
 bool landlock_is_valid_access(int off, int size, enum bpf_access_type type,

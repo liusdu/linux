@@ -137,6 +137,6 @@ void __init landlock_add_hooks(void)
 {
 	pr_info("landlock: Version %u", LANDLOCK_VERSION);
 	landlock_add_hooks_fs();
-	security_add_hooks(NULL, 0, "landlock");
+	security_add_hooks(NULL, 0);
 	bpf_register_prog_type(&bpf_landlock_type);
 }
