@@ -4536,6 +4536,70 @@ static struct bpf_test tests[] = {
 		.result = REJECT,
 		.has_prog_subtype = true,
 	},
+	{
+		"missing subtype",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK,
+	},
+	{
+		"landlock/fs: always accept",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.result = ACCEPT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK,
+		.has_prog_subtype = true,
+		.prog_subtype = {
+			.landlock_rule = {
+				.version = 1,
+				.event = LANDLOCK_SUBTYPE_EVENT_FS,
+			}
+		},
+	},
+	{
+		"landlock/fs: read context",
+		.insns = {
+			BPF_MOV64_REG(BPF_REG_6, BPF_REG_1),
+			BPF_LDX_MEM(BPF_DW, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, status)),
+			/* test operations on raw values */
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_LDX_MEM(BPF_W, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, arch)),
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_LDX_MEM(BPF_W, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, syscall_nr)),
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_LDX_MEM(BPF_W, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, syscall_cmd)),
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_LDX_MEM(BPF_W, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, event)),
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_LDX_MEM(BPF_DW, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, arg1)),
+			BPF_LDX_MEM(BPF_DW, BPF_REG_7, BPF_REG_6,
+				offsetof(struct landlock_context, arg2)),
+			BPF_ALU64_IMM(BPF_ADD, BPF_REG_7, 1),
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.result = ACCEPT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK,
+		.has_prog_subtype = true,
+		.prog_subtype = {
+			.landlock_rule = {
+				.version = 1,
+				.event = LANDLOCK_SUBTYPE_EVENT_FS,
+			}
+		},
+	},
 };
 
 static int probe_filter_length(const struct bpf_insn *fp)
