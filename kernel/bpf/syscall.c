@@ -783,8 +783,44 @@ struct bpf_prog *bpf_prog_get_type(u32 ufd, enum bpf_prog_type type)
 }
 EXPORT_SYMBOL_GPL(bpf_prog_get_type);
 
+static int check_user_buf(void __user *uptr, unsigned int size_req,
+			  unsigned int size_max)
+{
+	if (!access_ok(VERIFY_READ, uptr, 1))
+		return -EFAULT;
+
+	if (size_req > PAGE_SIZE)	/* silly large */
+		return -E2BIG;
+
+	/* If we're handed a bigger struct than we know of,
+	 * ensure all the unknown bits are 0 - i.e. new
+	 * user-space does not rely on any kernel feature
+	 * extensions we dont know about yet.
+	 */
+	if (size_req > size_max) {
+		unsigned char __user *addr;
+		unsigned char __user *end;
+		unsigned char val;
+		int err;
+
+		addr = uptr + size_max;
+		end  = uptr + size_req;
+
+		for (; addr < end; addr++) {
+			err = get_user(val, addr);
+			if (err)
+				return err;
+			if (val)
+				return -E2BIG;
+		}
+		return size_max;
+	}
+
+	return size_req;
+}
+
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD kern_version
+#define	BPF_PROG_LOAD_LAST_FIELD prog_subtype_size
 
 static int bpf_prog_load(union bpf_attr *attr)
 {
@@ -842,6 +878,26 @@ static int bpf_prog_load(union bpf_attr *attr)
 	err = find_prog_type(type, prog);
 	if (err < 0)
 		goto free_prog;
+
+	/* copy eBPF program subtype from user space */
+	if (attr->prog_subtype) {
+		__u32 size;
+
+		size = check_user_buf((void __user *)attr->prog_subtype,
+				      attr->prog_subtype_size,
+				      sizeof(prog->subtype));
+		if (size < 0) {
+			err = size;
+			goto free_prog;
+		}
+		/* prog->subtype is __GFP_ZERO */
+		if (copy_from_user(&prog->subtype,
+				   u64_to_user_ptr(attr->prog_subtype), size)
+				   != 0)
+			return -EFAULT;
+		prog->has_subtype = 1;
+	} else if (attr->prog_subtype_size != 0)
+		return -EINVAL;
 
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr);
@@ -981,34 +1037,9 @@ SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, siz
 	if (!capable(CAP_SYS_ADMIN) && sysctl_unprivileged_bpf_disabled)
 		return -EPERM;
 
-	if (!access_ok(VERIFY_READ, uattr, 1))
-		return -EFAULT;
-
-	if (size > PAGE_SIZE)	/* silly large */
-		return -E2BIG;
-
-	/* If we're handed a bigger struct than we know of,
-	 * ensure all the unknown bits are 0 - i.e. new
-	 * user-space does not rely on any kernel feature
-	 * extensions we dont know about yet.
-	 */
-	if (size > sizeof(attr)) {
-		unsigned char __user *addr;
-		unsigned char __user *end;
-		unsigned char val;
-
-		addr = (void __user *)uattr + sizeof(attr);
-		end  = (void __user *)uattr + size;
-
-		for (; addr < end; addr++) {
-			err = get_user(val, addr);
-			if (err)
-				return err;
-			if (val)
-				return -E2BIG;
-		}
-		size = sizeof(attr);
-	}
+	size = check_user_buf((void __user *)uattr, size, sizeof(attr));
+	if (size < 0)
+		return size;
 
 	/* copy attributes from user space, may be less than sizeof(bpf_attr) */
 	if (copy_from_user(&attr, uattr, size) != 0)

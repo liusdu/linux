@@ -148,7 +148,7 @@ static void prog_load(void)
 	};
 	prog_fd = bpf_load_program(BPF_PROG_TYPE_SOCKET_FILTER, prog,
 					ARRAY_SIZE(prog), "GPL", 0,
-					log_buf, sizeof(log_buf));
+					log_buf, sizeof(log_buf), NULL);
 	if (prog_fd < 0)
 		error(1, errno, "failed to load prog\n%s\n", log_buf);
 }

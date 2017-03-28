@@ -419,6 +419,8 @@ struct bpf_prog {
 	enum bpf_prog_type	type;		/* Type of BPF program */
 	u32			len;		/* Number of filter blocks */
 	u8			tag[BPF_TAG_SIZE];
+	u8			has_subtype;
+	union bpf_prog_subtype	subtype;	/* Fine-grained verifications */
 	struct bpf_prog_aux	*aux;		/* Auxiliary fields */
 	struct sock_fprog_kern	*orig_prog;	/* Original BPF program */
 	unsigned int		(*bpf_func)(const void *ctx,

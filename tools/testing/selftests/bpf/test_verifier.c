@@ -55,6 +55,8 @@ struct bpf_test {
 		REJECT
 	} result, result_unpriv;
 	enum bpf_prog_type prog_type;
+	bool has_prog_subtype;
+	union bpf_prog_subtype prog_subtype;
 };
 
 /* Note we want this to be 64 bit aligned so that the end of our array is
@@ -4524,6 +4526,16 @@ static struct bpf_test tests[] = {
 		.errstr = "R1 type=map_value_or_null expected=map_ptr",
 		.result = REJECT,
 	},
+	{
+		"superfluous subtype",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.has_prog_subtype = true,
+	},
 };
 
 static int probe_filter_length(const struct bpf_insn *fp)
@@ -4639,6 +4651,8 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 	int fd_prog, expected_ret;
 	const char *expected_err;
 	int i;
+	union bpf_prog_subtype *prog_subtype =
+		test->has_prog_subtype ? &test->prog_subtype : NULL;
 
 	for (i = 0; i < MAX_NR_MAPS; i++)
 		map_fds[i] = -1;
@@ -4647,7 +4661,7 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 
 	fd_prog = bpf_load_program(prog_type ? : BPF_PROG_TYPE_SOCKET_FILTER,
 				   prog, prog_len, "GPL", 0, bpf_vlog,
-				   sizeof(bpf_vlog));
+				   sizeof(bpf_vlog), prog_subtype);
 
 	expected_ret = unpriv && test->result_unpriv != UNDEF ?
 		       test->result_unpriv : test->result;
