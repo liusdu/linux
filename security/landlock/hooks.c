@@ -95,6 +95,38 @@ bool landlock_is_valid_access(int off, int size, enum bpf_access_type type,
 	return true;
 }
 
+/**
+ * landlock_event_deny - run Landlock rules tied to an event
+ *
+ * @event_idx: event index in the rules array
+ * @ctx: non-NULL eBPF context
+ * @events: Landlock events pointer
+ *
+ * Return true if at least one rule deny the event.
+ */
+static bool landlock_event_deny(u32 event_idx, const struct landlock_context *ctx,
+		struct landlock_events *events)
+{
+	struct landlock_rule *rule;
+
+	if (!events)
+		return false;
+
+	for (rule = events->rules[event_idx]; rule; rule = rule->prev) {
+		u32 ret;
+
+		if (WARN_ON(!rule->prog))
+			continue;
+		rcu_read_lock();
+		ret = BPF_PROG_RUN(rule->prog, (void *)ctx);
+		rcu_read_unlock();
+		/* deny access if a program returns a value different than 0 */
+		if (ret)
+			return true;
+	}
+	return false;
+}
+
 int landlock_decide(enum landlock_subtype_event event,
 		__u64 ctx_values[CTX_ARG_NB], u32 cmd, const char *hook)
 {
@@ -110,6 +142,11 @@ int landlock_decide(enum landlock_subtype_event event,
 		.arg1 = ctx_values[0],
 		.arg2 = ctx_values[1],
 	};
+
+#ifdef CONFIG_SECCOMP_FILTER
+	deny = landlock_event_deny(event_idx, &ctx,
+			current->seccomp.landlock_events);
+#endif /* CONFIG_SECCOMP_FILTER */
 
 	return deny ? -EPERM : 0;
 }

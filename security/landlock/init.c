@@ -135,7 +135,8 @@ static struct bpf_prog_type_list bpf_landlock_type __ro_after_init = {
 
 void __init landlock_add_hooks(void)
 {
-	pr_info("landlock: Version %u", LANDLOCK_VERSION);
+	pr_info("landlock: Version %u, ready to sandbox with %s\n",
+			LANDLOCK_VERSION, "seccomp");
 	landlock_add_hooks_fs();
 	security_add_hooks(NULL, 0, "landlock");
 	bpf_register_prog_type(&bpf_landlock_type);
