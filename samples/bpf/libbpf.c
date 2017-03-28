@@ -13,7 +13,7 @@
 #include <arpa/inet.h>
 #include "libbpf.h"
 
-static __u64 ptr_to_u64(void *ptr)
+static __u64 ptr_to_u64(const void *ptr)
 {
 	return (__u64) (unsigned long) ptr;
 }
@@ -82,7 +82,8 @@ char bpf_log_buf[LOG_BUF_SIZE];
 
 int bpf_prog_load(enum bpf_prog_type prog_type,
 		  const struct bpf_insn *insns, int prog_len,
-		  const char *license, int kern_version)
+		  const char *license, int kern_version,
+		  const union bpf_prog_subtype *subtype)
 {
 	union bpf_attr attr = {
 		.prog_type = prog_type,
@@ -92,6 +93,8 @@ int bpf_prog_load(enum bpf_prog_type prog_type,
 		.log_buf = ptr_to_u64(bpf_log_buf),
 		.log_size = LOG_BUF_SIZE,
 		.log_level = 1,
+		.prog_subtype = ptr_to_u64(subtype),
+		.prog_subtype_size = subtype ? sizeof(*subtype) : 0,
 	};
 
 	/* assign one field outside of struct init to make sure any

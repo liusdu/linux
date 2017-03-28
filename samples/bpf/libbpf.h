@@ -13,7 +13,8 @@ int bpf_get_next_key(int fd, void *key, void *next_key);
 
 int bpf_prog_load(enum bpf_prog_type prog_type,
 		  const struct bpf_insn *insns, int insn_len,
-		  const char *license, int kern_version);
+		  const char *license, int kern_version,
+		  const union bpf_prog_subtype *subtype);
 
 int bpf_obj_pin(int fd, const char *pathname);
 int bpf_obj_get(const char *pathname);

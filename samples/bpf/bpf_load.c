@@ -56,6 +56,7 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 	char buf[256];
 	int fd, efd, err, id;
 	struct perf_event_attr attr = {};
+	union bpf_prog_subtype *st = NULL;
 
 	attr.type = PERF_TYPE_TRACEPOINT;
 	attr.sample_type = PERF_SAMPLE_RAW;
@@ -77,7 +78,7 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 		return -1;
 	}
 
-	fd = bpf_prog_load(prog_type, prog, size, license, kern_version);
+	fd = bpf_prog_load(prog_type, prog, size, license, kern_version, st);
 	if (fd < 0) {
 		printf("bpf_prog_load() err=%d\n%s", errno, bpf_log_buf);
 		return -1;

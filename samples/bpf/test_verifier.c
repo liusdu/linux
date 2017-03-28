@@ -2468,7 +2468,7 @@ static int test(void)
 
 		prog_fd = bpf_prog_load(prog_type ?: BPF_PROG_TYPE_SOCKET_FILTER,
 					prog, prog_len * sizeof(struct bpf_insn),
-					"GPL", 0);
+					"GPL", 0, NULL);
 
 		if (unpriv && tests[i].result_unpriv != UNDEF)
 			expected_result = tests[i].result_unpriv;
