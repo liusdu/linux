@@ -14,6 +14,7 @@
 #include <linux/lsm_hooks.h>
 
 #include "hooks_fs.h"
+#include "hooks_ptrace.h"
 
 
 static inline bool bpf_landlock_is_valid_access(int off, int size,
@@ -137,6 +138,7 @@ void __init landlock_add_hooks(void)
 {
 	pr_info("landlock: Version %u, ready to sandbox with %s\n",
 			LANDLOCK_VERSION, "seccomp");
+	landlock_add_hooks_ptrace();
 	landlock_add_hooks_fs();
 	security_add_hooks(NULL, 0, "landlock");
 	bpf_register_prog_type(&bpf_landlock_type);
