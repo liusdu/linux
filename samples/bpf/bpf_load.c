@@ -29,6 +29,8 @@
 
 static char license[128];
 static int kern_version;
+static union bpf_prog_subtype subtype = {};
+static bool has_subtype;
 static bool processed_sec[128];
 char bpf_log_buf[BPF_LOG_BUF_SIZE];
 int map_fd[MAX_MAPS];
@@ -68,6 +70,7 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 	bool is_perf_event = strncmp(event, "perf_event", 10) == 0;
 	bool is_cgroup_skb = strncmp(event, "cgroup/skb", 10) == 0;
 	bool is_cgroup_sk = strncmp(event, "cgroup/sock", 11) == 0;
+	bool is_landlock = strncmp(event, "landlock", 8) == 0;
 	size_t insns_cnt = size / sizeof(struct bpf_insn);
 	enum bpf_prog_type prog_type;
 	char buf[256];
@@ -94,6 +97,13 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 		prog_type = BPF_PROG_TYPE_CGROUP_SKB;
 	} else if (is_cgroup_sk) {
 		prog_type = BPF_PROG_TYPE_CGROUP_SOCK;
+	} else if (is_landlock) {
+		prog_type = BPF_PROG_TYPE_LANDLOCK;
+		if (!has_subtype) {
+			printf("No subtype\n");
+			return -1;
+		}
+		st = &subtype;
 	} else {
 		printf("Unknown event '%s'\n", event);
 		return -1;
@@ -108,7 +118,8 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 
 	prog_fd[prog_cnt++] = fd;
 
-	if (is_xdp || is_perf_event || is_cgroup_skb || is_cgroup_sk)
+	if (is_xdp || is_perf_event || is_cgroup_skb || is_cgroup_sk ||
+	    is_landlock)
 		return 0;
 
 	if (is_socket) {
@@ -294,6 +305,7 @@ int load_bpf_file(char *path)
 	kern_version = 0;
 	memset(license, 0, sizeof(license));
 	memset(processed_sec, 0, sizeof(processed_sec));
+	has_subtype = false;
 
 	if (elf_version(EV_CURRENT) == EV_NONE)
 		return 1;
@@ -339,6 +351,16 @@ int load_bpf_file(char *path)
 			processed_sec[i] = true;
 			if (load_maps(data->d_buf, data->d_size))
 				return 1;
+		} else if (strcmp(shname, "subtype") == 0) {
+			processed_sec[i] = true;
+			if (data->d_size != sizeof(union bpf_prog_subtype)) {
+				printf("invalid size of subtype section %zd\n",
+				       data->d_size);
+				return 1;
+			}
+			memcpy(&subtype, data->d_buf,
+			       sizeof(union bpf_prog_subtype));
+			has_subtype = true;
 		} else if (shdr.sh_type == SHT_SYMTAB) {
 			symbols = data;
 		}
@@ -376,14 +398,14 @@ int load_bpf_file(char *path)
 			    memcmp(shname_prog, "xdp", 3) == 0 ||
 			    memcmp(shname_prog, "perf_event", 10) == 0 ||
 			    memcmp(shname_prog, "socket", 6) == 0 ||
-			    memcmp(shname_prog, "cgroup/", 7) == 0)
+			    memcmp(shname_prog, "cgroup/", 7) == 0 ||
+			    memcmp(shname_prog, "landlock", 8) == 0)
 				load_and_attach(shname_prog, insns, data_prog->d_size);
 		}
 	}
 
 	/* load programs that don't use maps */
 	for (i = 1; i < ehdr.e_shnum; i++) {
-
 		if (processed_sec[i])
 			continue;
 
@@ -396,7 +418,8 @@ int load_bpf_file(char *path)
 		    memcmp(shname, "xdp", 3) == 0 ||
 		    memcmp(shname, "perf_event", 10) == 0 ||
 		    memcmp(shname, "socket", 6) == 0 ||
-		    memcmp(shname, "cgroup/", 7) == 0)
+		    memcmp(shname, "cgroup/", 7) == 0 ||
+		    memcmp(shname, "landlock", 8) == 0)
 			load_and_attach(shname, data->d_buf, data->d_size);
 	}
 
