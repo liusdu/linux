@@ -114,6 +114,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_LWT_IN,
 	BPF_PROG_TYPE_LWT_OUT,
 	BPF_PROG_TYPE_LWT_XMIT,
+	BPF_PROG_TYPE_LANDLOCK,
 };
 
 enum bpf_attach_type {
@@ -659,6 +660,110 @@ enum xdp_action {
 struct xdp_md {
 	__u32 data;
 	__u32 data_end;
+};
+
+/**
+ * enum landlock_subtype_event - event occurring when an action is performed on
+ * a particular kernel object
+ *
+ * An event is a policy decision point which exposes the same context type
+ * (especially the same arg[0-9] field types) for each rule execution.
+ *
+ * @LANDLOCK_SUBTYPE_EVENT_UNSPEC: invalid value
+ * @LANDLOCK_SUBTYPE_EVENT_FS: generic filesystem event
+ */
+enum landlock_subtype_event {
+	LANDLOCK_SUBTYPE_EVENT_UNSPEC,
+	LANDLOCK_SUBTYPE_EVENT_FS,
+};
+#define _LANDLOCK_SUBTYPE_EVENT_LAST LANDLOCK_SUBTYPE_EVENT_FS
+
+/**
+ * DOC: landlock_subtype_access
+ *
+ * eBPF context and functions allowed for a rule
+ *
+ * - LANDLOCK_SUBTYPE_ABILITY_WRITE: allows to directly send notification to
+ *   userland (e.g. through a map), which may leaks sensitive information
+ * - LANDLOCK_SUBTYPE_ABILITY_DEBUG: allows to do debug actions (e.g. writing
+ *   logs), which may be dangerous and should only be used for rule testing
+ */
+#define LANDLOCK_SUBTYPE_ABILITY_WRITE		(1ULL << 0)
+#define LANDLOCK_SUBTYPE_ABILITY_DEBUG		(1ULL << 1)
+#define _LANDLOCK_SUBTYPE_ABILITY_NB		2
+#define _LANDLOCK_SUBTYPE_ABILITY_MASK		((1ULL << _LANDLOCK_SUBTYPE_ABILITY_NB) - 1)
+
+/*
+ * Future options for a Landlock rule (e.g. run even if a previous rule denied
+ * an action).
+ */
+#define _LANDLOCK_SUBTYPE_OPTION_NB		0
+#define _LANDLOCK_SUBTYPE_OPTION_MASK		((1ULL << _LANDLOCK_SUBTYPE_OPTION_NB) - 1)
+
+/*
+ * Status visible in the @status field of a context (e.g. already called in
+ * this syscall session, with same args...).
+ *
+ * The @status field exposed to a rule shall depend on the rule version.
+ */
+#define _LANDLOCK_SUBTYPE_STATUS_NB		0
+#define _LANDLOCK_SUBTYPE_STATUS_MASK		((1ULL << _LANDLOCK_SUBTYPE_STATUS_NB) - 1)
+
+/**
+ * DOC: landlock_action_fs
+ *
+ * - %LANDLOCK_ACTION_FS_EXEC: execute a file or walk through a directory
+ * - %LANDLOCK_ACTION_FS_WRITE: modify a file or a directory view (which
+ *   include mount actions)
+ * - %LANDLOCK_ACTION_FS_READ: read a file or a directory
+ * - %LANDLOCK_ACTION_FS_NEW: create a file or a directory
+ * - %LANDLOCK_ACTION_FS_GET: open or receive a file
+ * - %LANDLOCK_ACTION_FS_REMOVE: unlink a file or remove a directory
+ *
+ * Each of the following actions are specific to syscall multiplexers. They
+ * fill the syscall_cmd field from &struct landlock_context with their custom
+ * command.
+ *
+ * - %LANDLOCK_ACTION_FS_IOCTL: ioctl command
+ * - %LANDLOCK_ACTION_FS_LOCK: flock or fcntl lock command
+ * - %LANDLOCK_ACTION_FS_FCNTL: fcntl command
+ */
+#define LANDLOCK_ACTION_FS_EXEC			(1ULL << 0)
+#define LANDLOCK_ACTION_FS_WRITE		(1ULL << 1)
+#define LANDLOCK_ACTION_FS_READ			(1ULL << 2)
+#define LANDLOCK_ACTION_FS_NEW			(1ULL << 3)
+#define LANDLOCK_ACTION_FS_GET			(1ULL << 4)
+#define LANDLOCK_ACTION_FS_REMOVE		(1ULL << 5)
+#define LANDLOCK_ACTION_FS_IOCTL		(1ULL << 6)
+#define LANDLOCK_ACTION_FS_LOCK			(1ULL << 7)
+#define LANDLOCK_ACTION_FS_FCNTL		(1ULL << 8)
+#define _LANDLOCK_ACTION_FS_NB			9
+#define _LANDLOCK_ACTION_FS_MASK		((1ULL << _LANDLOCK_ACTION_FS_NB) - 1)
+
+
+/**
+ * struct landlock_context - context accessible to a Landlock rule
+ *
+ * @status: bitfield for future use (LANDLOCK_SUBTYPE_STATUS_*)
+ * @arch: indicates system call convention as an AUDIT_ARCH_* value
+ *        as defined in <linux/audit.h>
+ * @syscall_nr: the system call number called by the current process (may be
+ *              useful to debug: find out from which syscall this request came
+ *              from)
+ * @syscall_cmd: contains the command used by a multiplexer syscall (e.g.
+ *               ioctl, fcntl, flock)
+ * @event: event type (&enum landlock_subtype_event)
+ * @arg1: event's first optional argument
+ * @arg2: event's second optional argument
+ */
+struct landlock_context {
+	__u64 status;
+	__u32 arch;
+	__u32 syscall_nr;
+	__u32 syscall_cmd;
+	__u32 event;
+	__u64 arg1;
+	__u64 arg2;
 };
 
 #endif /* _UAPI__LINUX_BPF_H__ */
