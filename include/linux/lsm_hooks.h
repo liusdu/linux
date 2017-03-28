@@ -1920,5 +1920,10 @@ void __init loadpin_add_hooks(void);
 #else
 static inline void loadpin_add_hooks(void) { };
 #endif
+#ifdef CONFIG_SECURITY_LANDLOCK
+extern void __init landlock_add_hooks(void);
+#else
+static inline void __init landlock_add_hooks(void) { }
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 #endif /* ! __LINUX_LSM_HOOKS_H */
