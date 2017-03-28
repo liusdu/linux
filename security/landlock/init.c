@@ -78,6 +78,12 @@ static inline const struct bpf_func_proto *bpf_landlock_func_proto(
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;
 
+	/* event_fs */
+	case BPF_FUNC_handle_fs_get_mode:
+		if (event_fs)
+			return &bpf_handle_fs_get_mode_proto;
+		return NULL;
+
 	/* ability_write */
 	case BPF_FUNC_map_delete_elem:
 		if (ability_write)

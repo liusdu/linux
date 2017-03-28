@@ -483,6 +483,13 @@ union bpf_attr {
  *     @skb: pointer to skb
  *     Return: uid of the socket owner on success or 0 if the socket pointer
  *     inside sk_buff is NULL
+ *
+ * s64 bpf_handle_fs_get_mode(handle_fs)
+ *     Get the mode of a struct bpf_handle_fs
+ *     fs: struct bpf_handle_fs address
+ *     Return:
+ *       >= 0 file mode
+ *       < 0 error
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -532,7 +539,8 @@ union bpf_attr {
 	FN(xdp_adjust_head),		\
 	FN(probe_read_str),		\
 	FN(get_socket_cookie),		\
-	FN(get_socket_uid),
+	FN(get_socket_uid),		\
+	FN(handle_fs_get_mode),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

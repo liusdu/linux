@@ -191,6 +191,7 @@ static const char * const reg_type_str[] = {
 	[CONST_IMM]		= "imm",
 	[PTR_TO_PACKET]		= "pkt",
 	[PTR_TO_PACKET_END]	= "pkt_end",
+	[CONST_PTR_TO_HANDLE_FS] = "handle_fs",
 };
 
 #define __BPF_FUNC_STR_FN(x) [BPF_FUNC_ ## x] = __stringify(bpf_ ## x)
@@ -548,6 +549,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_PACKET_END:
 	case FRAME_PTR:
 	case CONST_PTR_TO_MAP:
+	case CONST_PTR_TO_HANDLE_FS:
 		return true;
 	default:
 		return false;
@@ -1052,6 +1054,10 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_CTX) {
 		expected_type = PTR_TO_CTX;
+		if (type != expected_type)
+			goto err_type;
+	} else if (arg_type == ARG_CONST_PTR_TO_HANDLE_FS) {
+		expected_type = CONST_PTR_TO_HANDLE_FS;
 		if (type != expected_type)
 			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_MEM ||
