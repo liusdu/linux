@@ -443,6 +443,23 @@ enum bpf_func_id {
 	 */
 	BPF_FUNC_set_hash_invalid,
 
+	BPF_FUNC_get_numa_node_id,
+	BPF_FUNC_skb_change_head,
+	BPF_FUNC_xdp_adjust_head,
+	BPF_FUNC_probe_read_str,
+	BPF_FUNC_get_socket_cookie,
+	BPF_FUNC_get_socket_uid,
+
+	/**
+	* s64 bpf_handle_fs_get_mode(handle_fs)
+	*     Get the mode of a struct bpf_handle_fs
+	*     fs: struct bpf_handle_fs address
+	*     Return:
+	*       >= 0 file mode
+	*       < 0 error
+	*/
+	BPF_FUNC_handle_fs_get_mode,
+
 	__BPF_FUNC_MAX_ID,
 };
 

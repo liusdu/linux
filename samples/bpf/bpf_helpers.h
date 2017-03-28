@@ -57,6 +57,8 @@ static int (*bpf_skb_set_tunnel_opt)(void *ctx, void *md, int size) =
 	(void *) BPF_FUNC_skb_set_tunnel_opt;
 static unsigned long long (*bpf_get_prandom_u32)(void) =
 	(void *) BPF_FUNC_get_prandom_u32;
+static long long (*bpf_handle_fs_get_mode)(void *handle_fs) =
+	(void *) BPF_FUNC_handle_fs_get_mode;
 
 /* llvm builtin functions that eBPF C program may use to
  * emit BPF_LD_ABS and BPF_LD_IND instructions
