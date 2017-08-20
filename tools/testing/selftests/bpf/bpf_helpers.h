@@ -72,6 +72,8 @@ static int (*bpf_sock_map_update)(void *map, void *key, void *value,
 				  unsigned long long map_lags) =
 	(void *) BPF_FUNC_sock_map_update;
 
+static long long (*bpf_handle_fs_get_mode)(void *handle_fs) =
+	(void *) BPF_FUNC_handle_fs_get_mode;
 
 /* llvm builtin functions that eBPF C program may use to
  * emit BPF_LD_ABS and BPF_LD_IND instructions

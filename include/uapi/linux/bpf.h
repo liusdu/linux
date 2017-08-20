@@ -600,6 +600,13 @@ union bpf_attr {
  *	@map_flags: sock map specific flags
  *	   bit 1: Enable strparser
  *	   other bits: reserved
+ *
+ * s64 bpf_handle_fs_get_mode(handle_fs)
+ *     Get the mode of a struct bpf_handle_fs
+ *     fs: struct bpf_handle_fs address
+ *     Return:
+ *       >= 0 file mode
+ *       < 0 error
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -656,6 +663,7 @@ union bpf_attr {
 	FN(redirect_map),		\
 	FN(sk_redirect_map),		\
 	FN(sock_map_update),		\
+	FN(handle_fs_get_mode),		\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

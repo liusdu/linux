@@ -16,6 +16,11 @@
 #include <linux/rbtree_latch.h>
 #include <linux/numa.h>
 
+/* FS helpers */
+#include <linux/dcache.h> /* struct dentry */
+#include <linux/fs.h> /* struct file, struct inode */
+#include <linux/path.h> /* struct path */
+
 struct perf_event;
 struct bpf_prog;
 struct bpf_map;
@@ -85,6 +90,8 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_CTX,		/* pointer to context */
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
+
+	ARG_CONST_PTR_TO_HANDLE_FS,	/* pointer to an abstract FS struct */
 };
 
 /* type of values returned from helper functions */
@@ -141,6 +148,7 @@ enum bpf_reg_type {
 	PTR_TO_STACK,		 /* reg == frame_pointer + offset */
 	PTR_TO_PACKET,		 /* reg points to skb->data */
 	PTR_TO_PACKET_END,	 /* skb->data + headlen */
+	CONST_PTR_TO_HANDLE_FS,	 /* FS helpers */
 };
 
 /* The information passed from prog-specific *_is_valid_access
@@ -222,6 +230,26 @@ struct bpf_event_entry {
 	struct file *map_file;
 	struct rcu_head rcu;
 };
+
+/* FS helpers */
+enum bpf_handle_fs_type {
+	BPF_HANDLE_FS_TYPE_NONE,
+	BPF_HANDLE_FS_TYPE_FILE,
+	BPF_HANDLE_FS_TYPE_INODE,
+	BPF_HANDLE_FS_TYPE_PATH,
+	BPF_HANDLE_FS_TYPE_DENTRY,
+};
+
+struct bpf_handle_fs {
+	enum bpf_handle_fs_type type;
+	union {
+		struct file *file;
+		struct inode *inode;
+		const struct path *path;
+		struct dentry *dentry;
+	};
+};
+
 
 u64 bpf_tail_call(u64 ctx, u64 r2, u64 index, u64 r4, u64 r5);
 u64 bpf_get_stackid(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
@@ -414,6 +442,9 @@ extern const struct bpf_func_proto bpf_skb_vlan_push_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_pop_proto;
 extern const struct bpf_func_proto bpf_get_stackid_proto;
 extern const struct bpf_func_proto bpf_sock_map_update_proto;
+
+/* FS helpers */
+extern const struct bpf_func_proto bpf_handle_fs_get_mode_proto;
 
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);

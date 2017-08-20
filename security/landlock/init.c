@@ -37,6 +37,9 @@ static inline bool bpf_landlock_is_valid_subtype(
 
 	switch (prog_subtype->landlock_rule.event) {
 	case LANDLOCK_SUBTYPE_EVENT_FS:
+	case LANDLOCK_SUBTYPE_EVENT_FS_IOCTL:
+	case LANDLOCK_SUBTYPE_EVENT_FS_LOCK:
+	case LANDLOCK_SUBTYPE_EVENT_FS_FCNTL:
 		break;
 	case LANDLOCK_SUBTYPE_EVENT_UNSPEC:
 	default:
@@ -72,6 +75,20 @@ static inline const struct bpf_func_proto *bpf_landlock_func_proto(
 		enum bpf_func_id func_id,
 		const union bpf_prog_subtype *prog_subtype)
 {
+	/* context-dependant functions */
+	switch (prog_subtype->landlock_rule.event) {
+	case LANDLOCK_SUBTYPE_EVENT_FS:
+	case LANDLOCK_SUBTYPE_EVENT_FS_IOCTL:
+	case LANDLOCK_SUBTYPE_EVENT_FS_LOCK:
+	case LANDLOCK_SUBTYPE_EVENT_FS_FCNTL:
+		switch (func_id) {
+		case BPF_FUNC_handle_fs_get_mode:
+			return &bpf_handle_fs_get_mode_proto;
+		default:
+			break;
+		}
+	}
+
 	/* generic functions */
 	if (prog_subtype->landlock_rule.ability &
 			LANDLOCK_SUBTYPE_ABILITY_DEBUG) {
