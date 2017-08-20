@@ -14,6 +14,7 @@
 
 #include "common.h" /* LANDLOCK_* */
 #include "hooks_fs.h"
+#include "hooks_ptrace.h"
 
 
 static inline bool bpf_landlock_is_valid_access(int off, int size,
@@ -122,5 +123,6 @@ void __init landlock_add_hooks(void)
 {
 	pr_info("%s: ABI %u, ready to sandbox with %s\n",
 			LANDLOCK_NAME, LANDLOCK_ABI, "seccomp");
+	landlock_add_hooks_ptrace();
 	landlock_add_hooks_fs();
 }
