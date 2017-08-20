@@ -970,7 +970,7 @@ struct bpf_prog *bpf_prog_get_type(u32 ufd, enum bpf_prog_type type)
 EXPORT_SYMBOL_GPL(bpf_prog_get_type);
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD prog_flags
+#define	BPF_PROG_LOAD_LAST_FIELD prog_subtype_size
 
 static int bpf_prog_load(union bpf_attr *attr)
 {
@@ -1033,6 +1033,26 @@ static int bpf_prog_load(union bpf_attr *attr)
 	err = find_prog_type(type, prog);
 	if (err < 0)
 		goto free_prog;
+
+	/* copy eBPF program subtype from user space */
+	if (attr->prog_subtype) {
+		u32 size;
+
+		err = check_uarg_tail_zero(u64_to_user_ptr(attr->prog_subtype),
+					   sizeof(prog->subtype),
+					   attr->prog_subtype_size);
+		if (err)
+			goto free_prog;
+		size = min_t(u32, attr->prog_subtype_size, sizeof(prog->subtype));
+
+		/* prog->subtype is __GFP_ZERO */
+		if (copy_from_user(&prog->subtype,
+				   u64_to_user_ptr(attr->prog_subtype), size)
+				   != 0)
+			return -EFAULT;
+		prog->has_subtype = 1;
+	} else if (attr->prog_subtype_size != 0)
+		return -EINVAL;
 
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr);

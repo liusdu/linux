@@ -180,6 +180,15 @@ enum bpf_sockmap_flags {
 /* Specify numa node during map creation */
 #define BPF_F_NUMA_NODE		(1U << 2)
 
+union bpf_prog_subtype {
+	struct {
+		__u32		abi; /* minimal ABI version, cf. user doc */
+		__u32		event; /* enum landlock_subtype_event */
+		__aligned_u64	ability; /* LANDLOCK_SUBTYPE_ABILITY_* */
+		__aligned_u64	option; /* LANDLOCK_SUBTYPE_OPTION_* */
+	} landlock_rule;
+} __attribute__((aligned(8)));
+
 union bpf_attr {
 	struct { /* anonymous struct used by BPF_MAP_CREATE command */
 		__u32	map_type;	/* one of enum bpf_map_type */
@@ -215,6 +224,8 @@ union bpf_attr {
 		__aligned_u64	log_buf;	/* user supplied buffer */
 		__u32		kern_version;	/* checked when prog_type=kprobe */
 		__u32		prog_flags;
+		__aligned_u64	prog_subtype;	/* bpf_prog_subtype address */
+		__u32		prog_subtype_size;
 	};
 
 	struct { /* anonymous struct used by BPF_OBJ_* commands */

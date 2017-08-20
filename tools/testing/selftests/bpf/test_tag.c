@@ -57,7 +57,7 @@ static int bpf_try_load_prog(int insns, int fd_map,
 
 	bpf_filler(insns, fd_map);
 	fd_prog = bpf_load_program(BPF_PROG_TYPE_SCHED_CLS, prog, insns, "", 0,
-				   NULL, 0);
+				   NULL, 0, NULL);
 	assert(fd_prog > 0);
 	if (fd_map > 0)
 		bpf_filler(insns, 0);

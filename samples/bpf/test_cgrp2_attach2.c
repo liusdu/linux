@@ -45,7 +45,7 @@ static int prog_load(int verdict)
 
 	ret = bpf_load_program(BPF_PROG_TYPE_CGROUP_SKB,
 			       prog, insns_cnt, "GPL", 0,
-			       bpf_log_buf, BPF_LOG_BUF_SIZE);
+			       bpf_log_buf, BPF_LOG_BUF_SIZE, NULL);
 
 	if (ret < 0) {
 		log_err("Loading program");

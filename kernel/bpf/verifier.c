@@ -952,7 +952,8 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 		return 0;
 
 	if (env->prog->aux->ops->is_valid_access &&
-	    env->prog->aux->ops->is_valid_access(off, size, t, &info)) {
+	    env->prog->aux->ops->is_valid_access(off, size, t, &info,
+						 &env->prog->subtype)) {
 		/* A non zero info.ctx_field_size indicates that this field is a
 		 * candidate for later verifier transformation to load the whole
 		 * field and then apply a mask when accessed with a narrower
@@ -962,7 +963,6 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 		 */
 		env->insn_aux_data[insn_idx].ctx_field_size = info.ctx_field_size;
 		*reg_type = info.reg_type;
-
 		/* remember the offset of last byte accessed in ctx */
 		if (env->prog->aux->max_ctx_offset < off + size)
 			env->prog->aux->max_ctx_offset = off + size;
@@ -1636,7 +1636,8 @@ static int check_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 	}
 
 	if (env->prog->aux->ops->get_func_proto)
-		fn = env->prog->aux->ops->get_func_proto(func_id);
+		fn = env->prog->aux->ops->get_func_proto(func_id,
+							 &env->prog->subtype);
 
 	if (!fn) {
 		verbose("unknown func %s#%d\n", func_id_name(func_id), func_id);
@@ -4190,7 +4191,7 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 		}
 
 patch_call_imm:
-		fn = prog->aux->ops->get_func_proto(insn->imm);
+		fn = prog->aux->ops->get_func_proto(insn->imm, &prog->subtype);
 		/* all functions that have prototype and verifier allowed
 		 * programs to call them, must be real in-kernel functions
 		 */
@@ -4232,6 +4233,14 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 	char __user *log_ubuf = NULL;
 	struct bpf_verifier_env *env;
 	int ret = -EINVAL;
+
+	if ((*prog)->aux->ops->is_valid_subtype) {
+		if (!(*prog)->aux->ops->is_valid_subtype(&(*prog)->subtype))
+			return -EINVAL;
+	} else if ((*prog)->has_subtype) {
+		/* do not accept a subtype if the program does not handle it */
+		return -EINVAL;
+	}
 
 	/* 'struct bpf_verifier_env' can be global, but since it's not small,
 	 * allocate/free it every time bpf_check() is called
