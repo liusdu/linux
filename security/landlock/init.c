@@ -10,8 +10,10 @@
 
 #include <linux/bpf.h> /* enum bpf_access_type */
 #include <linux/capability.h> /* capable */
+#include <linux/lsm_hooks.h>
 
 #include "common.h" /* LANDLOCK_* */
+#include "hooks_fs.h"
 
 
 static inline bool bpf_landlock_is_valid_access(int off, int size,
@@ -23,6 +25,8 @@ static inline bool bpf_landlock_is_valid_access(int off, int size,
 
 	switch (prog_subtype->landlock_rule.event) {
 	case LANDLOCK_SUBTYPE_EVENT_FS:
+		return landlock_is_valid_access_event_FS(off, size, type,
+				&info->reg_type, prog_subtype);
 	case LANDLOCK_SUBTYPE_EVENT_UNSPEC:
 	default:
 		return false;
@@ -113,3 +117,9 @@ const struct bpf_verifier_ops bpf_landlock_ops = {
 	.is_valid_access = bpf_landlock_is_valid_access,
 	.is_valid_subtype = bpf_landlock_is_valid_subtype,
 };
+
+void __init landlock_add_hooks(void)
+{
+	pr_info("%s: ABI %u", LANDLOCK_NAME, LANDLOCK_ABI);
+	landlock_add_hooks_fs();
+}

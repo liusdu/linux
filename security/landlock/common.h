@@ -18,4 +18,6 @@
  */
 #define LANDLOCK_ABI 1
 
+#define LANDLOCK_NAME "landlock"
+
 #endif /* _SECURITY_LANDLOCK_COMMON_H */
