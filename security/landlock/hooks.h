@@ -12,6 +12,7 @@
 #include <linux/bpf.h> /* enum bpf_access_type */
 #include <linux/lsm_hooks.h>
 #include <linux/sched.h> /* struct task_struct */
+#include <linux/seccomp.h>
 
 /* separators */
 #define SEP_COMMA() ,
@@ -163,7 +164,11 @@ WRAP_TYPE_RAW_C;
 
 static inline bool landlocked(const struct task_struct *task)
 {
+#ifdef CONFIG_SECCOMP_FILTER
+	return !!(task->seccomp.landlock_events);
+#else
 	return false;
+#endif /* CONFIG_SECCOMP_FILTER */
 }
 
 __init void landlock_register_hooks(struct security_hook_list *hooks, int count);

@@ -34,6 +34,7 @@
 #include <linux/security.h>
 #include <linux/tracehook.h>
 #include <linux/uaccess.h>
+#include <linux/landlock.h>
 
 /**
  * struct seccomp_filter - container for seccomp BPF programs
@@ -805,6 +806,8 @@ static long do_seccomp(unsigned int op, unsigned int flags,
 		return seccomp_set_mode_strict();
 	case SECCOMP_SET_MODE_FILTER:
 		return seccomp_set_mode_filter(flags, uargs);
+	case SECCOMP_PREPEND_LANDLOCK_RULE:
+		return landlock_seccomp_prepend_rule(flags, uargs);
 	default:
 		return -EINVAL;
 	}

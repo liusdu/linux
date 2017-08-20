@@ -120,6 +120,7 @@ const struct bpf_verifier_ops bpf_landlock_ops = {
 
 void __init landlock_add_hooks(void)
 {
-	pr_info("%s: ABI %u", LANDLOCK_NAME, LANDLOCK_ABI);
+	pr_info("%s: ABI %u, ready to sandbox with %s\n",
+			LANDLOCK_NAME, LANDLOCK_ABI, "seccomp");
 	landlock_add_hooks_fs();
 }
