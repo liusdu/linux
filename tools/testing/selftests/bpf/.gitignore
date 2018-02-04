@@ -1,5 +1,12 @@
-test_verifier
-test_maps
-test_lru_map
+feature/
+FEATURE-DUMP.libbpf
+fixdep
+test_align
+test_dev_cgroup
 test_lpm_map
+test_lru_map
+test_maps
+test_progs
 test_tag
+test_verifier
+test_verifier_log

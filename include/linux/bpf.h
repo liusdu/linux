@@ -89,6 +89,8 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_CTX,		/* pointer to context */
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
+
+	ARG_PTR_TO_INODE,	/* pointer to a struct inode */
 };
 
 /* type of values returned from helper functions */
@@ -146,6 +148,7 @@ enum bpf_reg_type {
 	PTR_TO_PACKET_META,	 /* skb->data - meta_len */
 	PTR_TO_PACKET,		 /* reg points to skb->data */
 	PTR_TO_PACKET_END,	 /* skb->data + headlen */
+	PTR_TO_INODE,		 /* reg points to struct inode */
 };
 
 /* The information passed from prog-specific *_is_valid_access
@@ -162,26 +165,39 @@ bpf_ctx_record_field_size(struct bpf_insn_access_aux *aux, u32 size)
 	aux->ctx_field_size = size;
 }
 
+/* specific data per program type */
+struct bpf_prog_extra {
+	union bpf_prog_subtype subtype;
+	union {
+		// TODO: move subtype fields here to avoir confusion (e.g. previous): type, triggers, options
+		struct bpf_prog *previous;
+	} landlock_hook;
+};
+
 struct bpf_prog_ops {
 	int (*test_run)(struct bpf_prog *prog, const union bpf_attr *kattr,
 			union bpf_attr __user *uattr);
+	void (*put_extra)(struct bpf_prog_extra *prog_extra);
 };
 
 struct bpf_verifier_ops {
 	/* return eBPF function prototype for verification */
-	const struct bpf_func_proto *(*get_func_proto)(enum bpf_func_id func_id);
+	const struct bpf_func_proto *(*get_func_proto)(enum bpf_func_id func_id,
+				      const struct bpf_prog_extra *prog_extra);
 
 	/* return true if 'size' wide access at offset 'off' within bpf_context
 	 * with 'type' (read or write) is allowed
 	 */
 	bool (*is_valid_access)(int off, int size, enum bpf_access_type type,
-				struct bpf_insn_access_aux *info);
+				struct bpf_insn_access_aux *info,
+				const struct bpf_prog_extra *prog_extra);
 	int (*gen_prologue)(struct bpf_insn *insn, bool direct_write,
 			    const struct bpf_prog *prog);
 	u32 (*convert_ctx_access)(enum bpf_access_type type,
 				  const struct bpf_insn *src,
 				  struct bpf_insn *dst,
 				  struct bpf_prog *prog, u32 *target_size);
+	bool (*is_valid_subtype)(struct bpf_prog_extra *prog_extra);
 };
 
 struct bpf_dev_offload {
@@ -219,6 +235,7 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+	struct bpf_prog_extra *extra;
 };
 
 struct bpf_array {
@@ -246,6 +263,10 @@ struct bpf_event_entry {
 	struct file *map_file;
 	struct rcu_head rcu;
 };
+
+
+u64 bpf_tail_call(u64 ctx, u64 r2, u64 index, u64 r4, u64 r5);
+u64 bpf_get_stackid(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 bool bpf_prog_array_compatible(struct bpf_array *array, const struct bpf_prog *fp);
 int bpf_prog_calc_tag(struct bpf_prog *fp);
@@ -384,6 +405,10 @@ void bpf_fd_array_map_clear(struct bpf_map *map);
 int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 				void *key, void *value, u64 map_flags);
 int bpf_fd_htab_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
+int bpf_inode_map_update_elem(struct bpf_map *map, int *key, u64 *value,
+			      u64 flags);
+int bpf_inode_map_lookup_elem(struct bpf_map *map, int *key, u64 *value);
+int bpf_inode_map_delete_elem(struct bpf_map *map, int *key);
 
 int bpf_get_file_flag(int flags);
 
@@ -578,6 +603,7 @@ extern const struct bpf_func_proto bpf_skb_vlan_push_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_pop_proto;
 extern const struct bpf_func_proto bpf_get_stackid_proto;
 extern const struct bpf_func_proto bpf_sock_map_update_proto;
+extern const struct bpf_func_proto bpf_inode_map_lookup_proto;
 
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);

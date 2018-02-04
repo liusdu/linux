@@ -29,6 +29,7 @@
 #include <linux/filter.h>
 #include <linux/bpf_perf_event.h>
 #include <linux/bpf.h>
+#include <linux/landlock.h>
 
 #include <bpf/bpf.h>
 
@@ -69,6 +70,8 @@ struct bpf_test {
 	} result, result_unpriv;
 	enum bpf_prog_type prog_type;
 	uint8_t flags;
+	bool has_prog_subtype;
+	union bpf_prog_subtype prog_subtype;
 };
 
 /* Note we want this to be 64 bit aligned so that the end of our array is
@@ -9715,6 +9718,59 @@ static struct bpf_test tests[] = {
 		.result = REJECT,
 		.prog_type = BPF_PROG_TYPE_XDP,
 	},
+	{
+		"superfluous subtype",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.has_prog_subtype = true,
+	},
+	{
+		"missing subtype",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK_HOOK,
+	},
+	{
+		"landlock/fs_pick: no option for previous program",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK_HOOK,
+		.prog_subtype = {
+			.landlock_hook = {
+				.type = LANDLOCK_HOOK_FS_PICK,
+				.previous = 1,
+			}
+		},
+	},
+	{
+		"landlock/fs_pick: bad previous program FD",
+		.insns = {
+			BPF_MOV32_IMM(BPF_REG_0, 0),
+			BPF_EXIT_INSN(),
+		},
+		.errstr = "",
+		.result = REJECT,
+		.prog_type = BPF_PROG_TYPE_LANDLOCK_HOOK,
+		.prog_subtype = {
+			.landlock_hook = {
+				.type = LANDLOCK_HOOK_FS_PICK,
+				.options = LANDLOCK_OPTION_PREVIOUS,
+				.previous = 0,
+			}
+		},
+	},
 };
 
 static int probe_filter_length(const struct bpf_insn *fp)
@@ -9830,6 +9886,8 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 	int map_fds[MAX_NR_MAPS];
 	const char *expected_err;
 	int i;
+	union bpf_prog_subtype *prog_subtype =
+		test->has_prog_subtype ? &test->prog_subtype : NULL;
 
 	for (i = 0; i < MAX_NR_MAPS; i++)
 		map_fds[i] = -1;
@@ -9838,7 +9896,8 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 
 	fd_prog = bpf_verify_program(prog_type ? : BPF_PROG_TYPE_SOCKET_FILTER,
 				     prog, prog_len, test->flags & F_LOAD_WITH_STRICT_ALIGNMENT,
-				     "GPL", 0, bpf_vlog, sizeof(bpf_vlog), 1);
+				     "GPL", 0, bpf_vlog, sizeof(bpf_vlog), 1,
+				     prog_subtype);
 
 	expected_ret = unpriv && test->result_unpriv != UNDEF ?
 		       test->result_unpriv : test->result;

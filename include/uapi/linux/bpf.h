@@ -114,6 +114,7 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_DEVMAP,
 	BPF_MAP_TYPE_SOCKMAP,
 	BPF_MAP_TYPE_CPUMAP,
+	BPF_MAP_TYPE_INODE,
 };
 
 enum bpf_prog_type {
@@ -133,6 +134,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_SOCK_OPS,
 	BPF_PROG_TYPE_SK_SKB,
 	BPF_PROG_TYPE_CGROUP_DEVICE,
+	BPF_PROG_TYPE_LANDLOCK_HOOK,
 };
 
 enum bpf_attach_type {
@@ -231,6 +233,15 @@ enum bpf_attach_type {
 #define BPF_F_RDONLY		(1U << 3)
 #define BPF_F_WRONLY		(1U << 4)
 
+union bpf_prog_subtype {
+	struct {
+		__u32		type; /* enum landlock_hook_type */
+		__aligned_u64	triggers; /* LANDLOCK_TRIGGER_* */
+		__aligned_u64	options; /* LANDLOCK_OPTION_* */
+		__u32		previous; /* chained program FD */
+	} landlock_hook;
+} __attribute__((aligned(8)));
+
 union bpf_attr {
 	struct { /* anonymous struct used by BPF_MAP_CREATE command */
 		__u32	map_type;	/* one of enum bpf_map_type */
@@ -269,6 +280,8 @@ union bpf_attr {
 		__u32		prog_flags;
 		char		prog_name[BPF_OBJ_NAME_LEN];
 		__u32		prog_ifindex;	/* ifindex of netdev to prep for */
+		__aligned_u64	prog_subtype;	/* bpf_prog_subtype address */
+		__u32		prog_subtype_size;
 	};
 
 	struct { /* anonymous struct used by BPF_OBJ_* commands */
@@ -747,7 +760,8 @@ union bpf_attr {
 	FN(perf_event_read_value),	\
 	FN(perf_prog_read_value),	\
 	FN(getsockopt),			\
-	FN(override_return),
+	FN(override_return),		\
+	FN(inode_map_lookup),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

@@ -216,6 +216,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_PACKET]		= "pkt",
 	[PTR_TO_PACKET_META]	= "pkt_meta",
 	[PTR_TO_PACKET_END]	= "pkt_end",
+	[PTR_TO_INODE]		= "inode",
 };
 
 static void print_liveness(struct bpf_verifier_env *env,
@@ -940,6 +941,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_PACKET_META:
 	case PTR_TO_PACKET_END:
 	case CONST_PTR_TO_MAP:
+	case PTR_TO_INODE:
 		return true;
 	default:
 		return false;
@@ -1301,7 +1303,8 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 	};
 
 	if (env->ops->is_valid_access &&
-	    env->ops->is_valid_access(off, size, t, &info)) {
+	    env->ops->is_valid_access(off, size, t, &info,
+				      env->prog->aux->extra)) {
 		/* A non zero info.ctx_field_size indicates that this field is a
 		 * candidate for later verifier transformation to load the whole
 		 * field and then apply a mask when accessed with a narrower
@@ -1797,6 +1800,10 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		expected_type = PTR_TO_CTX;
 		if (type != expected_type)
 			goto err_type;
+	} else if (arg_type == ARG_PTR_TO_INODE) {
+		expected_type = PTR_TO_INODE;
+		if (type != expected_type)
+			goto err_type;
 	} else if (arg_type == ARG_PTR_TO_MEM ||
 		   arg_type == ARG_PTR_TO_MEM_OR_NULL ||
 		   arg_type == ARG_PTR_TO_UNINIT_MEM) {
@@ -1969,6 +1976,10 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 		    func_id != BPF_FUNC_map_delete_elem)
 			goto error;
 		break;
+	case BPF_MAP_TYPE_INODE:
+		if (func_id != BPF_FUNC_inode_map_lookup)
+			goto error;
+		break;
 	default:
 		break;
 	}
@@ -2011,6 +2022,9 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 		if (map->map_type != BPF_MAP_TYPE_SOCKMAP)
 			goto error;
 		break;
+	case BPF_FUNC_inode_map_lookup:
+		if (map->map_type != BPF_MAP_TYPE_INODE)
+			goto error;
 	default:
 		break;
 	}
@@ -2192,7 +2206,7 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
 	}
 
 	if (env->ops->get_func_proto)
-		fn = env->ops->get_func_proto(func_id);
+		fn = env->ops->get_func_proto(func_id, env->prog->aux->extra);
 
 	if (!fn) {
 		verbose(env, "unknown func %s#%d\n", func_id_name(func_id),
@@ -5254,7 +5268,7 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			insn      = new_prog->insnsi + i + delta;
 		}
 patch_call_imm:
-		fn = env->ops->get_func_proto(insn->imm);
+		fn = env->ops->get_func_proto(insn->imm, prog->aux->extra);
 		/* all functions that have prototype and verifier allowed
 		 * programs to call them, must be real in-kernel functions
 		 */
@@ -5340,6 +5354,17 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 	env->strict_alignment = !!(attr->prog_flags & BPF_F_STRICT_ALIGNMENT);
 	if (!IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS))
 		env->strict_alignment = true;
+
+	if (env->ops->is_valid_subtype) {
+		if (!env->ops->is_valid_subtype(env->prog->aux->extra)) {
+			ret = -EINVAL;
+			goto err_unlock;
+		}
+	} else if (env->prog->aux->extra) {
+		/* do not accept a subtype if the program does not handle it */
+		ret = -EINVAL;
+		goto err_unlock;
+	}
 
 	if (env->prog->aux->offload) {
 		ret = bpf_prog_offload_verifier_prep(env);

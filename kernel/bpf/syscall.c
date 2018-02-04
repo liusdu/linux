@@ -519,6 +519,22 @@ int __weak bpf_stackmap_copy(struct bpf_map *map, void *key, void *value)
 	return -ENOTSUPP;
 }
 
+int __weak bpf_inode_map_update_elem(struct bpf_map *map, int *key,
+				     u64 *value, u64 flags)
+{
+	return -ENOTSUPP;
+}
+
+int __weak bpf_inode_map_lookup_elem(struct bpf_map *map, int *key, u64 *value)
+{
+	return -ENOTSUPP;
+}
+
+int __weak bpf_inode_map_delete_elem(struct bpf_map *map, int *key)
+{
+	return -ENOTSUPP;
+}
+
 /* last field in 'union bpf_attr' used by this command */
 #define BPF_MAP_LOOKUP_ELEM_LAST_FIELD value
 
@@ -577,6 +593,8 @@ static int map_lookup_elem(union bpf_attr *attr)
 		err = bpf_fd_array_map_lookup_elem(map, key, value);
 	} else if (IS_FD_HASH(map)) {
 		err = bpf_fd_htab_map_lookup_elem(map, key, value);
+	} else if (map->map_type == BPF_MAP_TYPE_INODE) {
+		err = bpf_inode_map_lookup_elem(map, key, value);
 	} else {
 		rcu_read_lock();
 		ptr = map->ops->map_lookup_elem(map, key);
@@ -669,10 +687,7 @@ static int map_update_elem(union bpf_attr *attr)
 		err = bpf_percpu_hash_update(map, key, value, attr->flags);
 	} else if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
 		err = bpf_percpu_array_update(map, key, value, attr->flags);
-	} else if (map->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY ||
-		   map->map_type == BPF_MAP_TYPE_PROG_ARRAY ||
-		   map->map_type == BPF_MAP_TYPE_CGROUP_ARRAY ||
-		   map->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS) {
+	} else if (IS_FD_ARRAY(map)) {
 		rcu_read_lock();
 		err = bpf_fd_array_map_update_elem(map, f.file, key, value,
 						   attr->flags);
@@ -681,6 +696,10 @@ static int map_update_elem(union bpf_attr *attr)
 		rcu_read_lock();
 		err = bpf_fd_htab_map_update_elem(map, f.file, key, value,
 						  attr->flags);
+		rcu_read_unlock();
+	} else if (map->map_type == BPF_MAP_TYPE_INODE) {
+		rcu_read_lock();
+		err = bpf_inode_map_update_elem(map, key, value, attr->flags);
 		rcu_read_unlock();
 	} else {
 		rcu_read_lock();
@@ -734,7 +753,11 @@ static int map_delete_elem(union bpf_attr *attr)
 	preempt_disable();
 	__this_cpu_inc(bpf_prog_active);
 	rcu_read_lock();
-	err = map->ops->map_delete_elem(map, key);
+	if (map->map_type == BPF_MAP_TYPE_INODE) {
+		err = bpf_inode_map_delete_elem(map, key);
+	} else {
+		err = map->ops->map_delete_elem(map, key);
+	}
 	rcu_read_unlock();
 	__this_cpu_dec(bpf_prog_active);
 	preempt_enable();
@@ -937,6 +960,8 @@ static void __bpf_prog_put_rcu(struct rcu_head *rcu)
 static void __bpf_prog_put(struct bpf_prog *prog, bool do_idr_lock)
 {
 	if (atomic_dec_and_test(&prog->aux->refcnt)) {
+		if (prog->aux->ops->put_extra)
+			prog->aux->ops->put_extra(prog->aux->extra);
 		trace_bpf_prog_put_rcu(prog);
 		/* bpf_prog_free_id() must be called first */
 		bpf_prog_free_id(prog, do_idr_lock);
@@ -1109,7 +1134,7 @@ struct bpf_prog *bpf_prog_get_type_dev(u32 ufd, enum bpf_prog_type type,
 EXPORT_SYMBOL_GPL(bpf_prog_get_type_dev);
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD prog_ifindex
+#define	BPF_PROG_LOAD_LAST_FIELD prog_subtype_size
 
 static int bpf_prog_load(union bpf_attr *attr)
 {
@@ -1188,6 +1213,35 @@ static int bpf_prog_load(union bpf_attr *attr)
 	if (err)
 		goto free_prog;
 
+	/* copy eBPF program subtype from user space */
+	if (attr->prog_subtype) {
+		u32 size;
+
+		err = check_uarg_tail_zero(u64_to_user_ptr(attr->prog_subtype),
+					   sizeof(prog->aux->extra->subtype),
+					   attr->prog_subtype_size);
+		if (err)
+			goto free_prog;
+		size = min_t(u32, attr->prog_subtype_size,
+			     sizeof(prog->aux->extra->subtype));
+
+		prog->aux->extra = kzalloc(sizeof(*prog->aux->extra),
+					   GFP_KERNEL | GFP_USER);
+		if (!prog->aux->extra) {
+			err = -ENOMEM;
+			goto free_prog;
+		}
+		if (copy_from_user(&prog->aux->extra->subtype,
+				   u64_to_user_ptr(attr->prog_subtype), size)
+				   != 0) {
+			err = -EFAULT;
+			goto free_prog;
+		}
+	} else if (attr->prog_subtype_size != 0) {
+		err = -EINVAL;
+		goto free_prog;
+	}
+
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr);
 	if (err < 0)
@@ -1220,6 +1274,8 @@ static int bpf_prog_load(union bpf_attr *attr)
 	return err;
 
 free_used_maps:
+	if (prog->aux->ops->put_extra)
+		prog->aux->ops->put_extra(prog->aux->extra);
 	free_used_maps(prog->aux);
 free_prog:
 	bpf_prog_uncharge_memlock(prog);

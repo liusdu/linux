@@ -42,6 +42,7 @@ hostprogs-y += xdp_redirect_map
 hostprogs-y += xdp_redirect_cpu
 hostprogs-y += xdp_monitor
 hostprogs-y += syscall_tp
+hostprogs-y += landlock1
 
 # Libbpf dependencies
 LIBBPF := ../../tools/lib/bpf/bpf.o
@@ -91,6 +92,7 @@ xdp_redirect_map-objs := bpf_load.o $(LIBBPF) xdp_redirect_map_user.o
 xdp_redirect_cpu-objs := bpf_load.o $(LIBBPF) xdp_redirect_cpu_user.o
 xdp_monitor-objs := bpf_load.o $(LIBBPF) xdp_monitor_user.o
 syscall_tp-objs := bpf_load.o $(LIBBPF) syscall_tp_user.o
+landlock1-objs := bpf_load.o $(LIBBPF) landlock1_user.o
 
 # Tell kbuild to always build the programs
 always := $(hostprogs-y)
@@ -140,6 +142,7 @@ always += xdp_redirect_map_kern.o
 always += xdp_redirect_cpu_kern.o
 always += xdp_monitor_kern.o
 always += syscall_tp_kern.o
+always += landlock1_kern.o
 
 HOSTCFLAGS += -I$(objtree)/usr/include
 HOSTCFLAGS += -I$(srctree)/tools/lib/
@@ -183,6 +186,7 @@ HOSTLOADLIBES_xdp_redirect_map += -lelf
 HOSTLOADLIBES_xdp_redirect_cpu += -lelf
 HOSTLOADLIBES_xdp_monitor += -lelf
 HOSTLOADLIBES_syscall_tp += -lelf
+HOSTLOADLIBES_landlock1 += -lelf
 
 # Allows pointing LLC/CLANG to a LLVM backend with bpf support, redefine on cmdline:
 #  make samples/bpf/ LLC=~/git/llvm/build/bin/llc CLANG=~/git/llvm/build/bin/clang
@@ -196,12 +200,15 @@ CLANG_ARCH_ARGS = -target $(ARCH)
 endif
 
 # Trick to allow make to be run from this directory
-all:
+all: $(LIBBPF)
 	$(MAKE) -C ../../ $(CURDIR)/
 
 clean:
 	$(MAKE) -C ../../ M=$(CURDIR) clean
 	@rm -f *~
+
+$(LIBBPF): FORCE
+	$(MAKE) -C $(dir $@) $(notdir $@)
 
 $(obj)/syscall_nrs.s:	$(src)/syscall_nrs.c
 	$(call if_changed_dep,cc_s_c)

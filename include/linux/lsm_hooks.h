@@ -428,6 +428,10 @@
  *	security module does not know about attribute or a negative error code
  *	to abort the copy up. Note that the caller is responsible for reading
  *	and writing the xattrs as this hook is merely a filter.
+ * @nameidata_put_lookup:
+ *	Deallocate and clear the current's nameidata->lookup.security field.
+ *	@lookup->security contains the security structure to be freed.
+ *	@inode is the last associated inode to the path walk
  *
  * Security hooks for file operations
  *
@@ -1514,6 +1518,8 @@ union security_list_options {
 	void (*inode_getsecid)(struct inode *inode, u32 *secid);
 	int (*inode_copy_up)(struct dentry *src, struct cred **new);
 	int (*inode_copy_up_xattr)(const char *name);
+	void (*nameidata_put_lookup)(struct nameidata_lookup *lookup,
+					struct inode *inode);
 
 	int (*file_permission)(struct file *file, int mask);
 	int (*file_alloc_security)(struct file *file);
@@ -1805,6 +1811,7 @@ struct security_hook_heads {
 	struct list_head inode_getsecid;
 	struct list_head inode_copy_up;
 	struct list_head inode_copy_up_xattr;
+	struct list_head nameidata_put_lookup;
 	struct list_head file_permission;
 	struct list_head file_alloc_security;
 	struct list_head file_free_security;
@@ -2025,5 +2032,10 @@ void __init loadpin_add_hooks(void);
 #else
 static inline void loadpin_add_hooks(void) { };
 #endif
+#ifdef CONFIG_SECURITY_LANDLOCK
+extern void __init landlock_add_hooks(void);
+#else
+static inline void __init landlock_add_hooks(void) { }
+#endif /* CONFIG_SECURITY_LANDLOCK */
 
 #endif /* ! __LINUX_LSM_HOOKS_H */

@@ -62,7 +62,7 @@ static int bpf_prog_create(const char *object)
 	} else {
 		return bpf_load_program(BPF_PROG_TYPE_SOCKET_FILTER,
 					insns, insns_cnt, "GPL", 0,
-					bpf_log_buf, BPF_LOG_BUF_SIZE);
+					bpf_log_buf, BPF_LOG_BUF_SIZE, NULL);
 	}
 }
 
