@@ -11,3 +11,4 @@ Security Documentation
    LSM
    self-protection
    tpm/index
+   landlock/index
