@@ -47,15 +47,17 @@ int bpf_load_program_name(enum bpf_prog_type type, const char *name,
 			  const struct bpf_insn *insns,
 			  size_t insns_cnt, const char *license,
 			  __u32 kern_version, char *log_buf,
-			  size_t log_buf_sz);
+			  size_t log_buf_sz,
+			  const union bpf_prog_subtype *subtype);
 int bpf_load_program(enum bpf_prog_type type, const struct bpf_insn *insns,
 		     size_t insns_cnt, const char *license,
 		     __u32 kern_version, char *log_buf,
-		     size_t log_buf_sz);
+		     size_t log_buf_sz, const union bpf_prog_subtype *subtype);
 int bpf_verify_program(enum bpf_prog_type type, const struct bpf_insn *insns,
 		       size_t insns_cnt, int strict_alignment,
 		       const char *license, __u32 kern_version,
-		       char *log_buf, size_t log_buf_sz, int log_level);
+		       char *log_buf, size_t log_buf_sz, int log_level,
+		       const union bpf_prog_subtype *subtype);
 
 int bpf_map_update_elem(int fd, const void *key, const void *value,
 			__u64 flags);

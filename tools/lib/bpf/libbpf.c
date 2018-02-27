@@ -1175,7 +1175,8 @@ load_program(enum bpf_prog_type type, const char *name, struct bpf_insn *insns,
 		pr_warning("Alloc log buffer for bpf loader error, continue without log\n");
 
 	ret = bpf_load_program_name(type, name, insns, insns_cnt, license,
-				    kern_version, log_buf, BPF_LOG_BUF_SIZE);
+				    kern_version, log_buf, BPF_LOG_BUF_SIZE,
+				    NULL);
 
 	if (ret >= 0) {
 		*pfd = ret;
@@ -1202,7 +1203,7 @@ load_program(enum bpf_prog_type type, const char *name, struct bpf_insn *insns,
 
 			fd = bpf_load_program_name(BPF_PROG_TYPE_KPROBE, name,
 						   insns, insns_cnt, license,
-						   kern_version, NULL, 0);
+						   kern_version, NULL, 0, NULL);
 			if (fd >= 0) {
 				close(fd);
 				ret = -LIBBPF_ERRNO__PROGTYPE;

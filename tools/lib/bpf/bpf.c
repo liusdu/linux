@@ -150,7 +150,8 @@ int bpf_load_program_name(enum bpf_prog_type type, const char *name,
 			  const struct bpf_insn *insns,
 			  size_t insns_cnt, const char *license,
 			  __u32 kern_version, char *log_buf,
-			  size_t log_buf_sz)
+			  size_t log_buf_sz,
+			  const union bpf_prog_subtype *subtype)
 {
 	int fd;
 	union bpf_attr attr;
@@ -166,6 +167,8 @@ int bpf_load_program_name(enum bpf_prog_type type, const char *name,
 	attr.log_level = 0;
 	attr.kern_version = kern_version;
 	memcpy(attr.prog_name, name, min(name_len, BPF_OBJ_NAME_LEN - 1));
+	attr.prog_subtype = ptr_to_u64(subtype);
+	attr.prog_subtype_size = subtype ? sizeof(*subtype) : 0;
 
 	fd = sys_bpf(BPF_PROG_LOAD, &attr, sizeof(attr));
 	if (fd >= 0 || !log_buf || !log_buf_sz)
@@ -182,16 +185,18 @@ int bpf_load_program_name(enum bpf_prog_type type, const char *name,
 int bpf_load_program(enum bpf_prog_type type, const struct bpf_insn *insns,
 		     size_t insns_cnt, const char *license,
 		     __u32 kern_version, char *log_buf,
-		     size_t log_buf_sz)
+		     size_t log_buf_sz, const union bpf_prog_subtype *subtype)
 {
 	return bpf_load_program_name(type, NULL, insns, insns_cnt, license,
-				     kern_version, log_buf, log_buf_sz);
+				     kern_version, log_buf, log_buf_sz,
+				     subtype);
 }
 
 int bpf_verify_program(enum bpf_prog_type type, const struct bpf_insn *insns,
 		       size_t insns_cnt, int strict_alignment,
 		       const char *license, __u32 kern_version,
-		       char *log_buf, size_t log_buf_sz, int log_level)
+		       char *log_buf, size_t log_buf_sz, int log_level,
+		       const union bpf_prog_subtype *subtype)
 {
 	union bpf_attr attr;
 
@@ -205,6 +210,8 @@ int bpf_verify_program(enum bpf_prog_type type, const struct bpf_insn *insns,
 	attr.log_level = log_level;
 	log_buf[0] = 0;
 	attr.kern_version = kern_version;
+	attr.prog_subtype = ptr_to_u64(subtype);
+	attr.prog_subtype_size = subtype ? sizeof(*subtype) : 0;
 	attr.prog_flags = strict_alignment ? BPF_F_STRICT_ALIGNMENT : 0;
 
 	return sys_bpf(BPF_PROG_LOAD, &attr, sizeof(attr));
