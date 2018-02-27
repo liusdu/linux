@@ -86,6 +86,13 @@ static int (*bpf_perf_prog_read_value)(void *ctx, void *buf,
 	(void *) BPF_FUNC_perf_prog_read_value;
 static int (*bpf_override_return)(void *ctx, unsigned long rc) =
 	(void *) BPF_FUNC_override_return;
+static unsigned long long (*bpf_inode_map_lookup)(void *map, void *key) =
+	(void *) BPF_FUNC_inode_map_lookup;
+static unsigned long long (*bpf_inode_get_tag)(void *inode, void *chain) =
+	(void *) BPF_FUNC_inode_get_tag;
+static unsigned long long (*bpf_landlock_set_tag)(void *tag_obj, void *chain,
+						  unsigned long long value) =
+	(void *) BPF_FUNC_landlock_set_tag;
 
 /* llvm builtin functions that eBPF C program may use to
  * emit BPF_LD_ABS and BPF_LD_IND instructions
