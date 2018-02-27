@@ -127,6 +127,10 @@ enum bpf_arg_type {
 
 	ARG_PTR_TO_CTX,		/* pointer to context */
 	ARG_ANYTHING,		/* any (initialized) argument is ok */
+
+	ARG_PTR_TO_INODE,	/* pointer to a struct inode */
+	ARG_PTR_TO_LL_TAG_OBJ,	/* pointer to a struct landlock_tag_object */
+	ARG_PTR_TO_LL_CHAIN,	/* pointer to a struct landlock_chain */
 };
 
 /* type of values returned from helper functions */
@@ -184,6 +188,9 @@ enum bpf_reg_type {
 	PTR_TO_PACKET_META,	 /* skb->data - meta_len */
 	PTR_TO_PACKET,		 /* reg points to skb->data */
 	PTR_TO_PACKET_END,	 /* skb->data + headlen */
+	PTR_TO_INODE,		 /* reg points to struct inode */
+	PTR_TO_LL_TAG_OBJ,	 /* reg points to struct landlock_tag_object */
+	PTR_TO_LL_CHAIN,	 /* reg points to struct landlock_chain */
 };
 
 /* The information passed from prog-specific *_is_valid_access
@@ -305,6 +312,10 @@ struct bpf_event_entry {
 	struct file *map_file;
 	struct rcu_head rcu;
 };
+
+
+u64 bpf_tail_call(u64 ctx, u64 r2, u64 index, u64 r4, u64 r5);
+u64 bpf_get_stackid(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 bool bpf_prog_array_compatible(struct bpf_array *array, const struct bpf_prog *fp);
 int bpf_prog_calc_tag(struct bpf_prog *fp);
@@ -447,6 +458,10 @@ void bpf_fd_array_map_clear(struct bpf_map *map);
 int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 				void *key, void *value, u64 map_flags);
 int bpf_fd_htab_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
+int bpf_inode_map_update_elem(struct bpf_map *map, int *key, u64 *value,
+			      u64 flags);
+int bpf_inode_map_lookup_elem(struct bpf_map *map, int *key, u64 *value);
+int bpf_inode_map_delete_elem(struct bpf_map *map, int *key);
 
 int bpf_get_file_flag(int flags);
 
@@ -686,6 +701,9 @@ extern const struct bpf_func_proto bpf_skb_vlan_push_proto;
 extern const struct bpf_func_proto bpf_skb_vlan_pop_proto;
 extern const struct bpf_func_proto bpf_get_stackid_proto;
 extern const struct bpf_func_proto bpf_sock_map_update_proto;
+extern const struct bpf_func_proto bpf_inode_map_lookup_proto;
+extern const struct bpf_func_proto bpf_inode_get_tag_proto;
+extern const struct bpf_func_proto bpf_landlock_set_tag_proto;
 
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);

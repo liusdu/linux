@@ -114,6 +114,7 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_DEVMAP,
 	BPF_MAP_TYPE_SOCKMAP,
 	BPF_MAP_TYPE_CPUMAP,
+	BPF_MAP_TYPE_INODE,
 };
 
 enum bpf_prog_type {
@@ -708,6 +709,22 @@ union bpf_attr {
  * int bpf_override_return(pt_regs, rc)
  *	@pt_regs: pointer to struct pt_regs
  *	@rc: the return value to set
+ *
+ * u64 bpf_inode_map_lookup(map, key)
+ *     @map: pointer to inode map
+ *     @key: pointer to inode
+ *     Return: value tied to this key, or zero if none
+ *
+ * u64 bpf_inode_get_tag(inode, chain)
+ *     @inode: pointer to struct inode
+ *     @chain: pointer to struct landlock_chain
+ *     Return: tag tied to this inode and chain, or zero if none
+ *
+ * int bpf_landlock_set_tag(tag_obj, chain, value)
+ *     @tag_obj: pointer pointing to a taggable object (e.g. inode)
+ *     @chain: pointer to struct landlock_chain
+ *     @value: value of the tag
+ *     Return: 0 on success or negative error code
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -769,7 +786,10 @@ union bpf_attr {
 	FN(perf_prog_read_value),	\
 	FN(getsockopt),			\
 	FN(override_return),		\
-	FN(sock_ops_cb_flags_set),
+	FN(sock_ops_cb_flags_set),	\
+	FN(inode_map_lookup),		\
+	FN(inode_get_tag),		\
+	FN(landlock_set_tag),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

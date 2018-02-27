@@ -50,3 +50,6 @@ BPF_MAP_TYPE(BPF_MAP_TYPE_SOCKMAP, sock_map_ops)
 #endif
 BPF_MAP_TYPE(BPF_MAP_TYPE_CPUMAP, cpu_map_ops)
 #endif
+#ifdef CONFIG_SECURITY_LANDLOCK
+BPF_MAP_TYPE(BPF_MAP_TYPE_INODE, inode_ops)
+#endif
