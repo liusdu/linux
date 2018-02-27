@@ -82,4 +82,13 @@ static inline enum landlock_hook_type get_type(struct bpf_prog *prog)
 	return prog->aux->extra->subtype.landlock_hook.type;
 }
 
+__maybe_unused
+static bool current_has_prog_type(enum landlock_hook_type hook_type)
+{
+	struct landlock_prog_set *prog_set;
+
+	prog_set = current->seccomp.landlock_prog_set;
+	return (prog_set && prog_set->programs[get_index(hook_type)]);
+}
+
 #endif /* _SECURITY_LANDLOCK_COMMON_H */

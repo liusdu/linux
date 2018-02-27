@@ -76,9 +76,19 @@ int __init security_init(void)
 	loadpin_add_hooks();
 
 	/*
-	 * Load all the remaining security modules.
+	 * Load all remaining privileged security modules.
 	 */
 	do_security_initcalls();
+
+	/*
+	 * Load potentially-unprivileged security modules at the end.
+	 *
+	 * For an unprivileged access-control, we don't want to give the
+	 * ability to any process to do some checks (e.g. through an eBPF
+	 * program) on kernel objects (e.g. files) if a privileged security
+	 * policy forbid their access.
+	 */
+	landlock_add_hooks();
 
 	return 0;
 }

@@ -22,6 +22,7 @@
 #include <linux/uaccess.h> /* get_user() */
 
 #include "enforce.h"
+#include "task.h"
 
 /* headers in include/linux/landlock.h */
 
@@ -64,6 +65,13 @@ int landlock_seccomp_prepend_prog(unsigned int flags,
 	if (err)
 		return err;
 
+	/* allocate current->security here to not have to handle this in
+	 * hook_nameidata_free_security() */
+	if (!current->security) {
+		current->security = landlock_new_task_security(GFP_KERNEL);
+		if (!current->security)
+			return -ENOMEM;
+	}
 	prog = bpf_prog_get(bpf_fd);
 	if (IS_ERR(prog)) {
 		err = PTR_ERR(prog);
@@ -86,6 +94,8 @@ int landlock_seccomp_prepend_prog(unsigned int flags,
 	return 0;
 
 free_task:
+	landlock_free_task_security(current->security);
+	current->security = NULL;
 	return err;
 }
 
