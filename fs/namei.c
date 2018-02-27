@@ -505,6 +505,9 @@ struct nameidata {
 	struct inode	*link_inode;
 	unsigned	root_seq;
 	int		dfd;
+#ifdef CONFIG_SECURITY
+	struct nameidata_lookup lookup;
+#endif
 } __randomize_layout;
 
 static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
@@ -515,6 +518,9 @@ static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
 	p->name = name;
 	p->total_link_count = old ? old->total_link_count : 0;
 	p->saved = old;
+#ifdef CONFIG_SECURITY
+	p->lookup.security = NULL;
+#endif
 	current->nameidata = p;
 }
 
@@ -522,6 +528,7 @@ static void restore_nameidata(void)
 {
 	struct nameidata *now = current->nameidata, *old = now->saved;
 
+	security_nameidata_put_lookup(&now->lookup, now->inode);
 	current->nameidata = old;
 	if (old)
 		old->total_link_count = now->total_link_count;
@@ -548,6 +555,27 @@ static int __nd_alloc_stack(struct nameidata *nd)
 	nd->stack = p;
 	return 0;
 }
+
+#ifdef CONFIG_SECURITY
+/**
+ * current_nameidata_lookup - get the state of the current path walk
+ *
+ * @inode: inode associated to the path walk
+ *
+ * Used by LSM modules for access restriction based on path walk. The LSM is in
+ * charge of the lookup->security blob allocation and management. The hook
+ * security_nameidata_put_lookup() will be called after the path walk end.
+ *
+ * Return ERR_PTR(-ENOENT) if there is no match.
+ */
+struct nameidata_lookup *current_nameidata_lookup(const struct inode *inode)
+{
+	if (!current->nameidata || current->nameidata->inode != inode)
+		return ERR_PTR(-ENOENT);
+	return &current->nameidata->lookup;
+}
+EXPORT_SYMBOL(current_nameidata_lookup);
+#endif
 
 /**
  * path_connected - Verify that a path->dentry is below path->mnt.mnt_root
@@ -2009,6 +2037,13 @@ static inline u64 hash_name(const void *salt, const char *name)
 
 #endif
 
+static inline void refresh_lookup(struct nameidata *nd)
+{
+#ifdef CONFIG_SECURITY
+	nd->lookup.type = nd->last_type;
+#endif
+}
+
 /*
  * Name resolution.
  * This is the basic name resolution function, turning a pathname into
@@ -2025,6 +2060,8 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 		name++;
 	if (!*name)
 		return 0;
+	/* be ready for may_lookup() */
+	refresh_lookup(nd);
 
 	/* At this point we know we have a real path component. */
 	for(;;) {
@@ -2064,6 +2101,8 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 		nd->last.hash_len = hash_len;
 		nd->last.name = name;
 		nd->last_type = type;
+		/* be ready for the next security_inode_permission() */
+		refresh_lookup(nd);
 
 		name += hashlen_len(hash_len);
 		if (!*name)

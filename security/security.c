@@ -857,6 +857,13 @@ int security_inode_copy_up_xattr(const char *name)
 }
 EXPORT_SYMBOL(security_inode_copy_up_xattr);
 
+void security_nameidata_put_lookup(struct nameidata_lookup *lookup,
+					struct inode *inode)
+{
+	call_void_hook(nameidata_put_lookup, lookup, inode);
+}
+EXPORT_SYMBOL(security_nameidata_put_lookup);
+
 int security_file_permission(struct file *file, int mask)
 {
 	int ret;
