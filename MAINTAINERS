@@ -7882,6 +7882,19 @@ S:	Maintained
 F:	net/l3mdev
 F:	include/net/l3mdev.h
 
+LANDLOCK SECURITY MODULE
+M:	Mickaël Salaün <mic@digikod.net>
+S:	Supported
+F:	Documentation/security/landlock/
+F:	include/linux/landlock.h
+F:	include/uapi/linux/landlock.h
+F:	samples/bpf/landlock*
+F:	security/landlock/
+F:	tools/include/uapi/linux/landlock.h
+F:	tools/testing/selftests/landlock/
+K:	landlock
+K:	LANDLOCK
+
 LANTIQ MIPS ARCHITECTURE
 M:	John Crispin <john@phrozen.org>
 L:	linux-mips@linux-mips.org
