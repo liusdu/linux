@@ -17,6 +17,7 @@
 #include "common.h" /* LANDLOCK_* */
 #include "hooks_fs.h"
 #include "hooks_cred.h"
+#include "hooks_ptrace.h"
 
 static bool bpf_landlock_is_valid_access(int off, int size,
 		enum bpf_access_type type, struct bpf_insn_access_aux *info,
@@ -232,5 +233,6 @@ void __init landlock_add_hooks(void)
 {
 	pr_info(LANDLOCK_NAME ": Ready to sandbox with seccomp\n");
 	landlock_add_hooks_cred();
+	landlock_add_hooks_ptrace();
 	landlock_add_hooks_fs();
 }
