@@ -107,6 +107,7 @@ LIBBPF_0.0.1 {
 		bpf_set_link_xdp_fd;
 		bpf_task_fd_query;
 		bpf_verify_program;
+		bpf_verify_program_xattr;
 		btf__fd;
 		btf__find_by_name;
 		btf__free;

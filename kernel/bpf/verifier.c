@@ -9167,6 +9167,17 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	if (ret < 0)
 		goto skip_full_check;
 
+	if (env->ops->is_valid_subtype) {
+		if (!env->ops->is_valid_subtype(env->prog->aux->extra)) {
+			ret = -EINVAL;
+			goto err_unlock;
+		}
+	} else if (env->prog->aux->extra) {
+		/* do not accept a subtype if the program does not handle it */
+		ret = -EINVAL;
+		goto err_unlock;
+	}
+
 	if (bpf_prog_is_dev_bound(env->prog->aux)) {
 		ret = bpf_prog_offload_verifier_prep(env->prog);
 		if (ret)

@@ -255,6 +255,7 @@ void __bpf_prog_free(struct bpf_prog *fp)
 {
 	if (fp->aux) {
 		free_percpu(fp->aux->stats);
+		kfree(fp->aux->extra);
 		kfree(fp->aux);
 	}
 	vfree(fp);

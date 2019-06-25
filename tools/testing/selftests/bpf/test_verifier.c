@@ -105,6 +105,8 @@ struct bpf_test {
 			__u64 data64[TEST_DATA_LEN / 8];
 		};
 	} retvals[MAX_TEST_RUNS];
+	bool has_prog_subtype;
+	union bpf_prog_subtype prog_subtype;
 };
 
 /* Note we want this to be 64 bit aligned so that the end of our array is
@@ -121,6 +123,11 @@ struct other_val {
 	long long foo;
 	long long bar;
 };
+
+static inline __u64 ptr_to_u64(const void *ptr)
+{
+	return (__u64) (unsigned long) ptr;
+}
 
 static void bpf_fill_ld_abs_vlan_push_pop(struct bpf_test *self)
 {
@@ -856,6 +863,9 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 	int fixup_skips;
 	__u32 pflags;
 	int i, err;
+	union bpf_attr attr;
+	union bpf_prog_subtype *prog_subtype =
+		test->has_prog_subtype ? &test->prog_subtype : NULL;
 
 	for (i = 0; i < MAX_NR_MAPS; i++)
 		map_fds[i] = -1;
@@ -881,8 +891,20 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 		pflags |= BPF_F_STRICT_ALIGNMENT;
 	if (test->flags & F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 		pflags |= BPF_F_ANY_ALIGNMENT;
-	fd_prog = bpf_verify_program(prog_type, prog, prog_len, pflags,
-				     "GPL", 0, bpf_vlog, sizeof(bpf_vlog), 4);
+
+	memset(&attr, 0, sizeof(attr));
+	attr.prog_type = prog_type;
+	attr.prog_subtype = ptr_to_u64(prog_subtype);
+	attr.prog_subtype_size = prog_subtype ? sizeof(*prog_subtype) : 0;
+	attr.insn_cnt = (__u32)prog_len;
+	attr.insns = ptr_to_u64(prog);
+	attr.license = ptr_to_u64("GPL");
+	bpf_vlog[0] = 0;
+	attr.log_buf = ptr_to_u64(bpf_vlog);
+	attr.log_size = sizeof(bpf_vlog);
+	attr.log_level = 4;
+	attr.prog_flags = pflags;
+	fd_prog = bpf_verify_program_xattr(&attr, sizeof(attr));
 	if (fd_prog < 0 && !bpf_probe_prog_type(prog_type, 0)) {
 		printf("SKIP (unsupported program type %d)\n", prog_type);
 		skips++;

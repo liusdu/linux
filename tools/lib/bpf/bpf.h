@@ -88,6 +88,7 @@ struct bpf_load_program_attr {
 	__u32 line_info_cnt;
 	__u32 log_level;
 	__u32 prog_flags;
+	const union bpf_prog_subtype *prog_subtype;
 };
 
 /* Flags to direct loading requirements */
@@ -102,6 +103,7 @@ LIBBPF_API int bpf_load_program(enum bpf_prog_type type,
 				const struct bpf_insn *insns, size_t insns_cnt,
 				const char *license, __u32 kern_version,
 				char *log_buf, size_t log_buf_sz);
+LIBBPF_API int bpf_verify_program_xattr(union bpf_attr *attr, size_t attr_sz);
 LIBBPF_API int bpf_verify_program(enum bpf_prog_type type,
 				  const struct bpf_insn *insns,
 				  size_t insns_cnt, __u32 prog_flags,

@@ -294,6 +294,11 @@ bpf_ctx_record_field_size(struct bpf_insn_access_aux *aux, u32 size)
 	aux->ctx_field_size = size;
 }
 
+/* specific data per program type */
+struct bpf_prog_extra {
+	union bpf_prog_subtype subtype;
+};
+
 struct bpf_prog_ops {
 	int (*test_run)(struct bpf_prog *prog, const union bpf_attr *kattr,
 			union bpf_attr __user *uattr);
@@ -319,6 +324,8 @@ struct bpf_verifier_ops {
 				  const struct bpf_insn *src,
 				  struct bpf_insn *dst,
 				  struct bpf_prog *prog, u32 *target_size);
+	// TODO?: convert to bool (*is_valid_subtype)(struct bpf_prog *prog);
+	bool (*is_valid_subtype)(struct bpf_prog_extra *prog_extra);
 };
 
 struct bpf_prog_offload_ops {
@@ -418,6 +425,7 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+	struct bpf_prog_extra *extra;
 };
 
 struct bpf_array {

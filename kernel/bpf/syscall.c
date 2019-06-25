@@ -1596,7 +1596,7 @@ bpf_prog_load_check_attach_type(enum bpf_prog_type prog_type,
 }
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD line_info_cnt
+#define	BPF_PROG_LOAD_LAST_FIELD prog_subtype_size
 
 static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 {
@@ -1685,6 +1685,36 @@ static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 	err = bpf_obj_name_cpy(prog->aux->name, attr->prog_name);
 	if (err)
 		goto free_prog;
+
+	/* copy eBPF program subtype from user space */
+	if (attr->prog_subtype) {
+		u32 size;
+
+		err = bpf_check_uarg_tail_zero(
+				u64_to_user_ptr(attr->prog_subtype),
+				sizeof(prog->aux->extra->subtype),
+				attr->prog_subtype_size);
+		if (err)
+			goto free_prog;
+		size = min_t(u32, attr->prog_subtype_size,
+			     sizeof(prog->aux->extra->subtype));
+
+		prog->aux->extra = kzalloc(sizeof(*prog->aux->extra),
+					   GFP_KERNEL | GFP_USER);
+		if (!prog->aux->extra) {
+			err = -ENOMEM;
+			goto free_prog;
+		}
+		if (copy_from_user(&prog->aux->extra->subtype,
+				   u64_to_user_ptr(attr->prog_subtype), size)
+				   != 0) {
+			err = -EFAULT;
+			goto free_prog;
+		}
+	} else if (attr->prog_subtype_size != 0) {
+		err = -EINVAL;
+		goto free_prog;
+	}
 
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr, uattr);
