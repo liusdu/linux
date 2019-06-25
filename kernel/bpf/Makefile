@@ -22,3 +22,6 @@ obj-$(CONFIG_CGROUP_BPF) += cgroup.o
 ifeq ($(CONFIG_INET),y)
 obj-$(CONFIG_BPF_SYSCALL) += reuseport_array.o
 endif
+ifeq ($(CONFIG_SECURITY_LANDLOCK),y)
+obj-$(CONFIG_BPF_SYSCALL) += inodemap.o
+endif

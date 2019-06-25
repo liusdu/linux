@@ -720,6 +720,22 @@ static void *__bpf_copy_key(void __user *ukey, u64 key_size)
 	return NULL;
 }
 
+int __weak bpf_inode_map_update_elem(struct bpf_map *map, int *key,
+				     u64 *value, u64 flags)
+{
+	return -ENOTSUPP;
+}
+
+int __weak bpf_inode_map_lookup_elem(struct bpf_map *map, int *key, u64 *value)
+{
+	return -ENOTSUPP;
+}
+
+int __weak bpf_inode_map_delete_elem(struct bpf_map *map, int *key)
+{
+	return -ENOTSUPP;
+}
+
 /* last field in 'union bpf_attr' used by this command */
 #define BPF_MAP_LOOKUP_ELEM_LAST_FIELD flags
 
@@ -801,6 +817,8 @@ static int map_lookup_elem(union bpf_attr *attr)
 	} else if (map->map_type == BPF_MAP_TYPE_QUEUE ||
 		   map->map_type == BPF_MAP_TYPE_STACK) {
 		err = map->ops->map_peek_elem(map, value);
+	} else if (map->map_type == BPF_MAP_TYPE_INODE) {
+		err = bpf_inode_map_lookup_elem(map, key, value);
 	} else {
 		rcu_read_lock();
 		if (map->ops->map_lookup_elem_sys_only)
@@ -951,6 +969,10 @@ static int map_update_elem(union bpf_attr *attr)
 	} else if (map->map_type == BPF_MAP_TYPE_QUEUE ||
 		   map->map_type == BPF_MAP_TYPE_STACK) {
 		err = map->ops->map_push_elem(map, value, attr->flags);
+	} else if (map->map_type == BPF_MAP_TYPE_INODE) {
+		rcu_read_lock();
+		err = bpf_inode_map_update_elem(map, key, value, attr->flags);
+		rcu_read_unlock();
 	} else {
 		rcu_read_lock();
 		err = map->ops->map_update_elem(map, key, value, attr->flags);
@@ -1006,7 +1028,10 @@ static int map_delete_elem(union bpf_attr *attr)
 	preempt_disable();
 	__this_cpu_inc(bpf_prog_active);
 	rcu_read_lock();
-	err = map->ops->map_delete_elem(map, key);
+	if (map->map_type == BPF_MAP_TYPE_INODE)
+		err = bpf_inode_map_delete_elem(map, key);
+	else
+		err = map->ops->map_delete_elem(map, key);
 	rcu_read_unlock();
 	__this_cpu_dec(bpf_prog_active);
 	preempt_enable();

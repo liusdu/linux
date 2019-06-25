@@ -400,6 +400,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_TCP_SOCK_OR_NULL] = "tcp_sock_or_null",
 	[PTR_TO_TP_BUFFER]	= "tp_buffer",
 	[PTR_TO_XDP_SOCK]	= "xdp_sock",
+	[PTR_TO_INODE]		= "inode",
 };
 
 static char slot_type_char[] = {
@@ -1801,6 +1802,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_TCP_SOCK:
 	case PTR_TO_TCP_SOCK_OR_NULL:
 	case PTR_TO_XDP_SOCK:
+	case PTR_TO_INODE:
 		return true;
 	default:
 		return false;
@@ -3254,6 +3256,10 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			verbose(env, "verifier internal error\n");
 			return -EFAULT;
 		}
+	} else if (arg_type == ARG_PTR_TO_INODE) {
+		expected_type = PTR_TO_INODE;
+		if (type != expected_type)
+			goto err_type;
 	} else if (arg_type_is_mem_ptr(arg_type)) {
 		expected_type = PTR_TO_STACK;
 		/* One exception here. In case function allows for NULL to be
@@ -3462,6 +3468,10 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 		    func_id != BPF_FUNC_sk_storage_delete)
 			goto error;
 		break;
+	case BPF_MAP_TYPE_INODE:
+		if (func_id != BPF_FUNC_inode_map_lookup)
+			goto error;
+		break;
 	default:
 		break;
 	}
@@ -3528,6 +3538,10 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 	case BPF_FUNC_sk_storage_get:
 	case BPF_FUNC_sk_storage_delete:
 		if (map->map_type != BPF_MAP_TYPE_SK_STORAGE)
+			goto error;
+		break;
+	case BPF_FUNC_inode_map_lookup:
+		if (map->map_type != BPF_MAP_TYPE_INODE)
 			goto error;
 		break;
 	default:

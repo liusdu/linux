@@ -208,6 +208,8 @@ enum bpf_arg_type {
 	ARG_PTR_TO_INT,		/* pointer to int */
 	ARG_PTR_TO_LONG,	/* pointer to long */
 	ARG_PTR_TO_SOCKET,	/* pointer to bpf_sock (fullsock) */
+
+	ARG_PTR_TO_INODE,	/* pointer to a struct inode */
 };
 
 /* type of values returned from helper functions */
@@ -278,6 +280,7 @@ enum bpf_reg_type {
 	PTR_TO_TCP_SOCK_OR_NULL, /* reg points to struct tcp_sock or NULL */
 	PTR_TO_TP_BUFFER,	 /* reg points to a writable raw tp's buffer */
 	PTR_TO_XDP_SOCK,	 /* reg points to struct xdp_sock */
+	PTR_TO_INODE,		 /* reg points to struct inode */
 };
 
 /* The information passed from prog-specific *_is_valid_access
@@ -485,6 +488,7 @@ struct bpf_event_entry {
 	struct rcu_head rcu;
 };
 
+
 bool bpf_prog_array_compatible(struct bpf_array *array, const struct bpf_prog *fp);
 int bpf_prog_calc_tag(struct bpf_prog *fp);
 
@@ -689,6 +693,10 @@ int bpf_fd_array_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
 int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 				void *key, void *value, u64 map_flags);
 int bpf_fd_htab_map_lookup_elem(struct bpf_map *map, void *key, u32 *value);
+int bpf_inode_map_update_elem(struct bpf_map *map, int *key, u64 *value,
+			      u64 flags);
+int bpf_inode_map_lookup_elem(struct bpf_map *map, int *key, u64 *value);
+int bpf_inode_map_delete_elem(struct bpf_map *map, int *key);
 
 int bpf_get_file_flag(int flags);
 int bpf_check_uarg_tail_zero(void __user *uaddr, size_t expected_size,
@@ -1059,6 +1067,7 @@ extern const struct bpf_func_proto bpf_spin_unlock_proto;
 extern const struct bpf_func_proto bpf_get_local_storage_proto;
 extern const struct bpf_func_proto bpf_strtol_proto;
 extern const struct bpf_func_proto bpf_strtoul_proto;
+extern const struct bpf_func_proto bpf_inode_map_lookup_proto;
 
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
