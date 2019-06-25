@@ -8807,6 +8807,19 @@ F:	net/core/skmsg.c
 F:	net/core/sock_map.c
 F:	net/ipv4/tcp_bpf.c
 
+LANDLOCK SECURITY MODULE
+M:	Mickaël Salaün <mic@digikod.net>
+S:	Supported
+F:	Documentation/security/landlock/
+F:	include/linux/landlock.h
+F:	include/uapi/linux/landlock.h
+F:	samples/bpf/landlock*
+F:	security/landlock/
+F:	tools/include/uapi/linux/landlock.h
+F:	tools/testing/selftests/landlock/
+K:	landlock
+K:	LANDLOCK
+
 LANTIQ / INTEL Ethernet drivers
 M:	Hauke Mehrtens <hauke@hauke-m.de>
 L:	netdev@vger.kernel.org
