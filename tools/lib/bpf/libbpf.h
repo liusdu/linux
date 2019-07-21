@@ -123,7 +123,8 @@ LIBBPF_API void *bpf_object__priv(const struct bpf_object *prog);
 
 LIBBPF_API int
 libbpf_prog_type_by_name(const char *name, enum bpf_prog_type *prog_type,
-			 enum bpf_attach_type *expected_attach_type);
+			 enum bpf_attach_type *expected_attach_type,
+			 bool *has_triggers);
 LIBBPF_API int libbpf_attach_type_by_name(const char *name,
 					  enum bpf_attach_type *attach_type);
 
@@ -266,6 +267,9 @@ LIBBPF_API void bpf_program__set_type(struct bpf_program *prog,
 LIBBPF_API void
 bpf_program__set_expected_attach_type(struct bpf_program *prog,
 				      enum bpf_attach_type type);
+LIBBPF_API void
+bpf_program__set_expected_attach_triggers(struct bpf_program *prog,
+					  __u64 triggers);
 
 LIBBPF_API bool bpf_program__is_socket_filter(const struct bpf_program *prog);
 LIBBPF_API bool bpf_program__is_tracepoint(const struct bpf_program *prog);
@@ -345,6 +349,7 @@ struct bpf_prog_load_attr {
 	const char *file;
 	enum bpf_prog_type prog_type;
 	enum bpf_attach_type expected_attach_type;
+	__u64 expected_attach_triggers;
 	int ifindex;
 	int log_level;
 	int prog_flags;

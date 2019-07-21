@@ -83,6 +83,7 @@ LIBBPF_0.0.1 {
 		bpf_program__prev;
 		bpf_program__priv;
 		bpf_program__set_expected_attach_type;
+		bpf_program__set_expected_attach_triggers;
 		bpf_program__set_ifindex;
 		bpf_program__set_kprobe;
 		bpf_program__set_perf_event;

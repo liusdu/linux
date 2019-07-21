@@ -181,6 +181,7 @@ struct bpf_program {
 	bpf_program_clear_priv_t clear_priv;
 
 	enum bpf_attach_type expected_attach_type;
+	__u64 expected_attach_triggers;
 	int btf_fd;
 	void *func_info;
 	__u32 func_info_rec_size;
@@ -2459,6 +2460,7 @@ load_program(struct bpf_program *prog, struct bpf_insn *insns, int insns_cnt,
 	memset(&load_attr, 0, sizeof(struct bpf_load_program_attr));
 	load_attr.prog_type = prog->type;
 	load_attr.expected_attach_type = prog->expected_attach_type;
+	load_attr.expected_attach_triggers = prog->expected_attach_triggers;
 	if (prog->caps->name)
 		load_attr.name = prog->name;
 	load_attr.insns = insns;
@@ -3540,19 +3542,29 @@ void bpf_program__set_expected_attach_type(struct bpf_program *prog,
 	prog->expected_attach_type = type;
 }
 
-#define BPF_PROG_SEC_IMPL(string, ptype, eatype, is_attachable, atype) \
-	{ string, sizeof(string) - 1, ptype, eatype, is_attachable, atype }
+void bpf_program__set_expected_attach_triggers(struct bpf_program *prog,
+					       __u64 triggers)
+{
+	prog->expected_attach_triggers = triggers;
+}
+
+#define BPF_PROG_SEC_IMPL(string, ptype, eatype, is_attachable, atype, has_triggers) \
+	{ string, sizeof(string) - 1, ptype, eatype, is_attachable, atype, has_triggers }
 
 /* Programs that can NOT be attached. */
-#define BPF_PROG_SEC(string, ptype) BPF_PROG_SEC_IMPL(string, ptype, 0, 0, 0)
+#define BPF_PROG_SEC(string, ptype) BPF_PROG_SEC_IMPL(string, ptype, 0, 0, 0, false)
 
 /* Programs that can be attached. */
 #define BPF_APROG_SEC(string, ptype, atype) \
-	BPF_PROG_SEC_IMPL(string, ptype, 0, 1, atype)
+	BPF_PROG_SEC_IMPL(string, ptype, 0, 1, atype, false)
 
 /* Programs that must specify expected attach type at load time. */
 #define BPF_EAPROG_SEC(string, ptype, eatype) \
-	BPF_PROG_SEC_IMPL(string, ptype, eatype, 1, eatype)
+	BPF_PROG_SEC_IMPL(string, ptype, eatype, 1, eatype, false)
+
+/* Programs that must specify expected attach type at load time and has triggers. */
+#define BPF_TEAPROG_SEC(string, ptype, eatype) \
+	BPF_PROG_SEC_IMPL(string, ptype, eatype, 1, eatype, true)
 
 /* Programs that can be attached but attach type can't be identified by section
  * name. Kept for backward compatibility.
@@ -3566,6 +3578,7 @@ static const struct {
 	enum bpf_attach_type expected_attach_type;
 	int is_attachable;
 	enum bpf_attach_type attach_type;
+	bool has_triggers;
 } section_names[] = {
 	BPF_PROG_SEC("socket",			BPF_PROG_TYPE_SOCKET_FILTER),
 	BPF_PROG_SEC("kprobe/",			BPF_PROG_TYPE_KPROBE),
@@ -3628,6 +3641,10 @@ static const struct {
 						BPF_CGROUP_GETSOCKOPT),
 	BPF_EAPROG_SEC("cgroup/setsockopt",	BPF_PROG_TYPE_CGROUP_SOCKOPT,
 						BPF_CGROUP_SETSOCKOPT),
+	BPF_EAPROG_SEC("landlock/fs_walk",	BPF_PROG_TYPE_LANDLOCK_HOOK,
+						BPF_LANDLOCK_FS_WALK),
+	BPF_TEAPROG_SEC("landlock/fs_pick",	BPF_PROG_TYPE_LANDLOCK_HOOK,
+						BPF_LANDLOCK_FS_PICK),
 };
 
 #undef BPF_PROG_SEC_IMPL
@@ -3665,7 +3682,8 @@ static char *libbpf_get_type_names(bool attach_type)
 }
 
 int libbpf_prog_type_by_name(const char *name, enum bpf_prog_type *prog_type,
-			     enum bpf_attach_type *expected_attach_type)
+			     enum bpf_attach_type *expected_attach_type,
+			     bool *has_triggers)
 {
 	char *type_names;
 	int i;
@@ -3678,6 +3696,7 @@ int libbpf_prog_type_by_name(const char *name, enum bpf_prog_type *prog_type,
 			continue;
 		*prog_type = section_names[i].prog_type;
 		*expected_attach_type = section_names[i].expected_attach_type;
+		*has_triggers = section_names[i].has_triggers;
 		return 0;
 	}
 	pr_warning("failed to guess program type based on ELF section name '%s'\n", name);
@@ -3720,10 +3739,11 @@ int libbpf_attach_type_by_name(const char *name,
 static int
 bpf_program__identify_section(struct bpf_program *prog,
 			      enum bpf_prog_type *prog_type,
-			      enum bpf_attach_type *expected_attach_type)
+			      enum bpf_attach_type *expected_attach_type,
+			      bool *has_triggers)
 {
 	return libbpf_prog_type_by_name(prog->section_name, prog_type,
-					expected_attach_type);
+					expected_attach_type, has_triggers);
 }
 
 int bpf_map__fd(const struct bpf_map *map)
@@ -3898,6 +3918,7 @@ int bpf_prog_load_xattr(const struct bpf_prog_load_attr *attr,
 	struct bpf_object *obj;
 	struct bpf_map *map;
 	int err;
+	bool has_triggers = false;
 
 	if (!attr)
 		return -EINVAL;
@@ -3921,7 +3942,8 @@ int bpf_prog_load_xattr(const struct bpf_prog_load_attr *attr,
 		expected_attach_type = attr->expected_attach_type;
 		if (prog_type == BPF_PROG_TYPE_UNSPEC) {
 			err = bpf_program__identify_section(prog, &prog_type,
-							    &expected_attach_type);
+							    &expected_attach_type,
+							    &has_triggers);
 			if (err < 0) {
 				bpf_object__close(obj);
 				return -EINVAL;
@@ -3931,6 +3953,9 @@ int bpf_prog_load_xattr(const struct bpf_prog_load_attr *attr,
 		bpf_program__set_type(prog, prog_type);
 		bpf_program__set_expected_attach_type(prog,
 						      expected_attach_type);
+		if (has_triggers)
+			bpf_program__set_expected_attach_triggers(prog,
+					attr->expected_attach_triggers);
 
 		prog->log_level = attr->log_level;
 		prog->prog_flags = attr->prog_flags;

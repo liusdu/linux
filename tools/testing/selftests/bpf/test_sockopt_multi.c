@@ -23,7 +23,7 @@ static int prog_attach(struct bpf_object *obj, int cgroup_fd, const char *title)
 	struct bpf_program *prog;
 	int err;
 
-	err = libbpf_prog_type_by_name(title, &prog_type, &attach_type);
+	err = libbpf_prog_type_by_name(title, &prog_type, &attach_type, false);
 	if (err) {
 		log_err("Failed to deduct types for %s BPF program", title);
 		return -1;
@@ -52,7 +52,7 @@ static int prog_detach(struct bpf_object *obj, int cgroup_fd, const char *title)
 	struct bpf_program *prog;
 	int err;
 
-	err = libbpf_prog_type_by_name(title, &prog_type, &attach_type);
+	err = libbpf_prog_type_by_name(title, &prog_type, &attach_type, false);
 	if (err)
 		return -1;
 
