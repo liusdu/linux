@@ -12,3 +12,4 @@ Security Documentation
    SCTP
    self-protection
    tpm/index
+   landlock/index
