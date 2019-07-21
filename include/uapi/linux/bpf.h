@@ -134,6 +134,7 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_QUEUE,
 	BPF_MAP_TYPE_STACK,
 	BPF_MAP_TYPE_SK_STORAGE,
+	BPF_MAP_TYPE_INODE,
 };
 
 /* Note that tracing related programs such as
@@ -2717,6 +2718,14 @@ union bpf_attr {
  *		**-EPERM** if no permission to send the *sig*.
  *
  *		**-EAGAIN** if bpf program can try again.
+ *
+ * void *bpf_inode_map_lookup_elem(struct bpf_map *map, const void *key)
+ *	Description
+ *		Perform a lookup in *map* for an entry associated to an inode
+ *		*key*.
+ *	Return
+ *		Map value associated to *key*, or **NULL** if no entry was
+ *		found.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -2828,7 +2837,8 @@ union bpf_attr {
 	FN(strtoul),			\
 	FN(sk_storage_get),		\
 	FN(sk_storage_delete),		\
-	FN(send_signal),
+	FN(send_signal),		\
+	FN(inode_map_lookup_elem),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

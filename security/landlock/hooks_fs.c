@@ -46,6 +46,12 @@ bool landlock_is_valid_access_fs_pick(int off, enum bpf_access_type type,
 		enum bpf_reg_type *reg_type, int *max_size)
 {
 	switch (off) {
+	case offsetof(struct landlock_ctx_fs_pick, inode):
+		if (type != BPF_READ)
+			return false;
+		*reg_type = PTR_TO_INODE;
+		*max_size = sizeof(u64);
+		return true;
 	default:
 		return false;
 	}
@@ -55,6 +61,12 @@ bool landlock_is_valid_access_fs_walk(int off, enum bpf_access_type type,
 		enum bpf_reg_type *reg_type, int *max_size)
 {
 	switch (off) {
+	case offsetof(struct landlock_ctx_fs_walk, inode):
+		if (type != BPF_READ)
+			return false;
+		*reg_type = PTR_TO_INODE;
+		*max_size = sizeof(u64);
+		return true;
 	default:
 		return false;
 	}
@@ -237,7 +249,78 @@ static int hook_sb_pivotroot(const struct path *old_path,
 			new_path->dentry->d_inode);
 }
 
+/* inode helpers */
+
+static inline struct list_head *inode_landlock(const struct inode *inode)
+{
+	return inode->i_security + landlock_blob_sizes.lbs_inode;
+}
+
+int landlock_inode_add_map(struct inode *inode, struct bpf_map *map)
+{
+	struct landlock_inode_map *inode_map;
+
+	inode_map = kzalloc(sizeof(*inode_map), GFP_ATOMIC);
+	if (!inode_map)
+		return -ENOMEM;
+	INIT_LIST_HEAD(&inode_map->list);
+	inode_map->map = map;
+	inode_map->inode = inode;
+	list_add_tail(&inode_map->list, inode_landlock(inode));
+	return 0;
+}
+
+static void put_landlock_inode_map(struct rcu_head *head)
+{
+	struct landlock_inode_map *inode_map;
+	int err;
+
+	inode_map = container_of(head, struct landlock_inode_map, rcu_put);
+	err = bpf_inode_ptr_unlocked_htab_map_delete_elem(inode_map->map,
+			&inode_map->inode, false);
+	bpf_map_put(inode_map->map);
+	kfree(inode_map);
+}
+
+void landlock_inode_remove_map(struct inode *inode, const struct bpf_map *map)
+{
+	struct landlock_inode_map *inode_map;
+	bool found = false;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(inode_map, inode_landlock(inode), list) {
+		if (inode_map->map == map) {
+			found = true;
+			list_del_rcu(&inode_map->list);
+			kfree_rcu(inode_map, rcu_put);
+			break;
+		}
+	}
+	rcu_read_unlock();
+	WARN_ON(!found);
+}
+
 /* inode hooks */
+
+static int hook_inode_alloc_security(struct inode *inode)
+{
+	struct list_head *ll_inode = inode_landlock(inode);
+
+	INIT_LIST_HEAD(ll_inode);
+	return 0;
+}
+
+static void hook_inode_free_security(struct inode *inode)
+{
+	struct landlock_inode_map *inode_map;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(inode_map, inode_landlock(inode), list) {
+		list_del_rcu(&inode_map->list);
+		call_rcu(&inode_map->rcu_put, put_landlock_inode_map);
+	}
+	rcu_read_unlock();
+}
 
 /* a directory inode contains only one dentry */
 static int hook_inode_create(struct inode *dir, struct dentry *dentry,
@@ -517,6 +600,8 @@ static struct security_hook_list landlock_hooks[] = {
 	LSM_HOOK_INIT(sb_mount, hook_sb_mount),
 	LSM_HOOK_INIT(sb_pivotroot, hook_sb_pivotroot),
 
+	LSM_HOOK_INIT(inode_alloc_security, hook_inode_alloc_security),
+	LSM_HOOK_INIT(inode_free_security, hook_inode_free_security),
 	LSM_HOOK_INIT(inode_create, hook_inode_create),
 	LSM_HOOK_INIT(inode_link, hook_inode_link),
 	LSM_HOOK_INIT(inode_unlink, hook_inode_unlink),

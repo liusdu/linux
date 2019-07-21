@@ -80,3 +80,6 @@ BPF_MAP_TYPE(BPF_MAP_TYPE_REUSEPORT_SOCKARRAY, reuseport_array_ops)
 #endif
 BPF_MAP_TYPE(BPF_MAP_TYPE_QUEUE, queue_map_ops)
 BPF_MAP_TYPE(BPF_MAP_TYPE_STACK, stack_map_ops)
+#ifdef CONFIG_SECURITY_LANDLOCK
+BPF_MAP_TYPE(BPF_MAP_TYPE_INODE, htab_inode_ops)
+#endif

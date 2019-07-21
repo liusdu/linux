@@ -104,6 +104,18 @@ static const struct bpf_func_proto *bpf_landlock_func_proto(
 	default:
 		break;
 	}
+
+	switch (get_hook_type(prog)) {
+	case LANDLOCK_HOOK_FS_WALK:
+	case LANDLOCK_HOOK_FS_PICK:
+		switch (func_id) {
+		case BPF_FUNC_inode_map_lookup_elem:
+			return &bpf_inode_map_lookup_elem_proto;
+		default:
+			break;
+		}
+		break;
+	}
 	return NULL;
 }
 
@@ -123,6 +135,7 @@ static int __init landlock_init(void)
 }
 
 struct lsm_blob_sizes landlock_blob_sizes __lsm_ro_after_init = {
+	.lbs_inode = sizeof(struct list_head),
 };
 
 DEFINE_LSM(LANDLOCK_NAME) = {

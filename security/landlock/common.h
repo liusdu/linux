@@ -11,6 +11,7 @@
 
 #include <linux/bpf.h> /* enum bpf_attach_type */
 #include <linux/filter.h> /* bpf_prog */
+#include <linux/lsm_hooks.h> /* lsm_blob_sizes */
 #include <linux/refcount.h> /* refcount_t */
 #include <uapi/linux/landlock.h> /* LANDLOCK_TRIGGER_* */
 
@@ -22,6 +23,8 @@
 
 #define _LANDLOCK_TRIGGER_FS_PICK_LAST	LANDLOCK_TRIGGER_FS_PICK_WRITE
 #define _LANDLOCK_TRIGGER_FS_PICK_MASK	((_LANDLOCK_TRIGGER_FS_PICK_LAST << 1ULL) - 1)
+
+extern struct lsm_blob_sizes landlock_blob_sizes;
 
 enum landlock_hook_type {
 	LANDLOCK_HOOK_FS_PICK = 1,
@@ -53,6 +56,17 @@ struct landlock_prog_list {
 struct landlock_prog_set {
 	struct landlock_prog_list *programs[_LANDLOCK_HOOK_LAST];
 	refcount_t usage;
+};
+
+struct landlock_inode_map {
+	struct list_head list;
+	struct rcu_head rcu_put;
+	struct bpf_map *map;
+	/*
+	 * It would be nice to remove the inode field, but it is necessary for
+	 * call_rcu() .
+	 */
+	struct inode *inode;
 };
 
 /**
