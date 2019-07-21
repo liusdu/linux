@@ -319,6 +319,7 @@ struct bpf_verifier_ops {
 				  const struct bpf_insn *src,
 				  struct bpf_insn *dst,
 				  struct bpf_prog *prog, u32 *target_size);
+	bool (*is_valid_triggers)(const struct bpf_prog *prog);
 };
 
 struct bpf_prog_offload_ops {
@@ -418,6 +419,7 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+	u64 expected_attach_triggers;
 };
 
 struct bpf_array {

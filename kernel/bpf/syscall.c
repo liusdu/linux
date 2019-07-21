@@ -1598,13 +1598,23 @@ bpf_prog_load_check_attach_type(enum bpf_prog_type prog_type,
 		default:
 			return -EINVAL;
 		}
+#ifdef CONFIG_SECURITY_LANDLOCK
+	case BPF_PROG_TYPE_LANDLOCK_HOOK:
+		switch (expected_attach_type) {
+		case BPF_LANDLOCK_FS_PICK:
+		case BPF_LANDLOCK_FS_WALK:
+			return 0;
+		default:
+			return -EINVAL;
+		}
+#endif
 	default:
 		return 0;
 	}
 }
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD line_info_cnt
+#define	BPF_PROG_LOAD_LAST_FIELD expected_attach_triggers
 
 static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 {
@@ -1693,6 +1703,8 @@ static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 	err = bpf_obj_name_cpy(prog->aux->name, attr->prog_name);
 	if (err)
 		goto free_prog;
+
+	prog->aux->expected_attach_triggers = attr->expected_attach_triggers;
 
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr, uattr);

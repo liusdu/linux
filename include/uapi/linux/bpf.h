@@ -197,6 +197,8 @@ enum bpf_attach_type {
 	BPF_CGROUP_UDP6_RECVMSG,
 	BPF_CGROUP_GETSOCKOPT,
 	BPF_CGROUP_SETSOCKOPT,
+	BPF_LANDLOCK_FS_PICK,
+	BPF_LANDLOCK_FS_WALK,
 	__MAX_BPF_ATTACH_TYPE
 };
 
@@ -412,6 +414,7 @@ union bpf_attr {
 		__u32		line_info_rec_size;	/* userspace bpf_line_info size */
 		__aligned_u64	line_info;	/* line info */
 		__u32		line_info_cnt;	/* number of bpf_line_info records */
+		__aligned_u64	expected_attach_triggers;	/* bitfield of triggers, e.g. LANDLOCK_TRIGGER_* */
 	};
 
 	struct { /* anonymous struct used by BPF_OBJ_* commands */
