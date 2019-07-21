@@ -9,8 +9,10 @@
 #include <linux/bpf.h> /* enum bpf_access_type */
 #include <linux/capability.h> /* capable */
 #include <linux/filter.h> /* struct bpf_prog */
+#include <linux/lsm_hooks.h>
 
 #include "common.h" /* LANDLOCK_* */
+#include "hooks_fs.h"
 
 static bool bpf_landlock_is_valid_access(int off, int size,
 		enum bpf_access_type type, const struct bpf_prog *prog,
@@ -26,6 +28,20 @@ static bool bpf_landlock_is_valid_access(int off, int size,
 		return false;
 	if (size <= 0 || size > sizeof(__u64))
 		return false;
+
+	/* set register type and max size */
+	switch (get_hook_type(prog)) {
+	case LANDLOCK_HOOK_FS_PICK:
+		if (!landlock_is_valid_access_fs_pick(off, type, &reg_type,
+					&max_size))
+			return false;
+		break;
+	case LANDLOCK_HOOK_FS_WALK:
+		if (!landlock_is_valid_access_fs_walk(off, type, &reg_type,
+					&max_size))
+			return false;
+		break;
+	}
 
 	/* check memory range access */
 	switch (reg_type) {
@@ -98,3 +114,20 @@ const struct bpf_verifier_ops landlock_verifier_ops = {
 };
 
 const struct bpf_prog_ops landlock_prog_ops = {};
+
+static int __init landlock_init(void)
+{
+	pr_info(LANDLOCK_NAME ": Initializing (sandbox with seccomp)\n");
+	landlock_add_hooks_fs();
+	return 0;
+}
+
+struct lsm_blob_sizes landlock_blob_sizes __lsm_ro_after_init = {
+};
+
+DEFINE_LSM(LANDLOCK_NAME) = {
+	.name = LANDLOCK_NAME,
+	.order = LSM_ORDER_LAST,
+	.blobs = &landlock_blob_sizes,
+	.init = landlock_init,
+};
